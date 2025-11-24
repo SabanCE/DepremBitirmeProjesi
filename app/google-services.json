@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "394198048936",
+    "project_id": "depremiletisimsistemi",
+    "storage_bucket": "depremiletisimsistemi.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:394198048936:android:dd801dab3daa71c080a29d",
+        "android_client_info": {
+          "package_name": "com.example.deprembitirmeprojesi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_2q7eAojgbvQCl80gfWCLAzpW7Jse7bU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

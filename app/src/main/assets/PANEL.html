@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>AFAD ACİL DURUM MERKEZİ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { background-color: #1a1a2e; color: white; font-family: 'Segoe UI', sans-serif; }
+        .card { background-color: #16213e; border: 1px solid #0f3460; }
+        .text-danger { color: #e94560 !important; }
+        #map { height: 400px; width: 100%; border-radius: 8px; border: 2px solid #0f3460; }
+        .blink { animation: blinker 1s linear infinite; color: red; font-weight: bold; }
+        @keyframes blinker { 50% { opacity: 0; } }
+        .table-dark { background-color: #16213e; --bs-table-bg: #16213e; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1a1a2e; }
+        ::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+        <div>
+            <h2 class="fw-bold text-danger">AFET YÖNETİM MERKEZİ</h2>
+            <small class="text-muted">Canlı Veri Akışı - Sadece Teyitli Depremler</small>
+        </div>
+        <div class="text-end">
+            <h4 id="clock">00:00:00</h4>
+            <span class="badge bg-success">SİSTEM AKTİF</span>
+        </div>
+    </div>
+
+  <div class="row">
+        <div class="col-md-5">
+            <div class="row mb-3">
+                <div class="col-6">
+                    <div class="card p-3 text-center text-white">
+                        <h5 class="opacity-75">Teyitli Deprem Sayısı (Son 24h)</h5>
+                        <h2 class="fw-bold mt-2" id="totalCount">0</h2> 
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="card p-3 text-center text-white">
+                        <h5 class="opacity-75">Son Şiddet</h5>
+                        <h2 class="fw-bold text-danger mt-2" id="lastMag">-</h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card p-3">
+                <h5 class="mb-3">Teyit Edilmiş Depremler</h5>
+                <div style="height: 300px; overflow-y: auto;">
+                    <table class="table table-dark table-hover table-sm">
+                        <thead>
+                            <tr>
+                                <th>Zaman</th>
+                                <th>Konum</th>
+                                <th>Şiddet</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alertTableBody">
+                            <tr><td colspan="3" class="text-center text-muted">Veri bekleniyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card p-2">
+                <div id="map"></div>
+            </div>
+            <div class="mt-3 p-3 bg-danger text-white rounded d-none" id="alertBox">
+                <h4 class="blink">⚠️ DİKKAT: YENİ TEYİTLİ DEPREM!</h4>
+                <p class="mb-0" id="alertDetail">Konum: ...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<script type="module">
+  const firebaseConfig = {
+    apiKey: "AIzaSyBof0Xantayt6F5oUQkzYTyw1he3_-C3ZI",
+    authDomain: "depremiletisimsistemi.firebaseapp.com",
+    projectId: "depremiletisimsistemi",
+    storageBucket: "depremiletisimsistemi.firebasestorage.app",
+    messagingSenderId: "394198048936",
+    appId: "1:394198048936:web:9877782b029240ef80a29d",
+    measurementId: "G-1J493388Y9"
+  };
+
+    try {
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const map = L.map('map').setView([39.0, 35.0], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        let markers = [];
+        let isFirstLoad = true; 
+        
+        // --- YENİ DEĞİŞKENLER ---
+        const STATUS_DEPREM = "DEPREM";
+        const TIME_THRESHOLD_MS = 30000; // 30 Saniye
+
+        // --- GÜNCELLENMİŞ SORGU ---
+        db.collection("earthquake_alerts")
+          .where("status", "==", STATUS_DEPREM) // Sadece status'u DEPREM olanları al
+          .orderBy("timestamp", "desc")
+          .limit(100) // Tekilleştirme için daha geniş bir veri seti al
+          .onSnapshot((snapshot) => {
+            const tableBody = document.getElementById("alertTableBody");
+            
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+            
+            if (snapshot.empty) {
+                tableBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Henüz teyitli deprem yok</td></tr>';
+                document.getElementById("totalCount").innerText = 0;
+                document.getElementById("lastMag").innerText = "-";
+                return;
+            }
+
+            // --- YENİ: Tekilleştirme Mantığı ---
+            const uniqueDocs = [];
+            let lastTimestamp = 0;
+
+            snapshot.forEach(doc => {
+                // Eğer bu ilk dokümansa veya son eklenenden 30 saniyeden daha eskiyse, bunu yeni bir olay olarak kabul et.
+                if (lastTimestamp === 0 || (lastTimestamp - doc.data().timestamp) > TIME_THRESHOLD_MS) {
+                    uniqueDocs.push(doc);
+                    lastTimestamp = doc.data().timestamp;
+                }
+            });
+            // uniqueDocs dizisi artık her bir deprem olayı için sadece TEK bir kayıt içeriyor.
+            
+            tableBody.innerHTML = "";
+            let isMostRecent = true; // Listenin en başındaki ilk elemanı bulmak için
+
+            uniqueDocs.forEach((doc) => {
+                const data = doc.data();
+
+                // Tabloyu doldur
+                const row = `
+                    <tr>
+                        <td>${data.datetime || 'Yok'}</td>
+                        <td>${data.city} / ${data.district}</td>
+                        <td class="text-danger fw-bold">${Number(data.magnitude).toFixed(1)}</td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+
+                // Haritaya marker ekle
+                if(data.latitude && data.longitude) {
+                    const marker = L.marker([data.latitude, data.longitude]).addTo(map)
+                        .bindPopup(`<b>${data.city} (${Number(data.magnitude).toFixed(1)})</b><br>${data.datetime}`);
+                    markers.push(marker);
+
+                    // En son olayı işle (sadece listenin en başındaki ilk eleman)
+                    if (isMostRecent) {
+                         map.setView([data.latitude, data.longitude], 13);
+                         document.getElementById("lastMag").innerText = Number(data.magnitude).toFixed(1);
+
+                         // Sayfa ilk yüklendiğinde değil, sadece yeni bir veri geldiğinde alarm göster.
+                         if (!isFirstLoad) {
+                             showAlertBox(data);
+                         }
+                         isMostRecent = false; // Diğerleri en son olay değil
+                    }
+                }
+            });
+            
+            // Toplam sayıyı tekilleştirilmiş liste üzerinden güncelle
+            document.getElementById("totalCount").innerText = uniqueDocs.length;
+
+            isFirstLoad = false; 
+
+        }, (error) => {
+            console.error("Veri akışı hatası:", error);
+            tableBody.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Veri alınamadı!</td></tr>';
+        });
+
+    } catch (e) {
+        console.error("Firebase başlatma hatası:", e);
+        alert("Firebase yapılandırma hatası! Lütfen konsolu kontrol edin.");
+    }
+
+    function showAlertBox(data) {
+        const box = document.getElementById("alertBox");
+        const detail = document.getElementById("alertDetail");
+        box.classList.remove("d-none");
+        detail.innerText = `MERKEZ: ${data.city} / ${data.district} - BÜYÜKLÜK: ${Number(data.magnitude).toFixed(1)}`;
+        setTimeout(() => { box.classList.add("d-none"); }, 8000); // Alarm kutusu 8 saniye görünsün
+    }
+
+    setInterval(() => {
+        document.getElementById("clock").innerText = new Date().toLocaleTimeString('tr-TR');
+    }, 1000);
+</script>
+</body>
+</html>

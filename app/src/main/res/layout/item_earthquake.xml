@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="12dp"
+    android:background="#F5F5F5"
+    android:layout_marginBottom="4dp">
+
+    <TextView
+        android:id="@+id/txtMagnitude"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:text="4.2"
+        android:gravity="center"
+        android:background="#FFCDD2"
+        android:textColor="#D32F2F"
+        android:textStyle="bold"
+        android:textSize="18sp"/>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="10dp">
+
+        <TextView
+            android:id="@+id/txtDate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="23 Kas 2025 - 14:30:22"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/txtType"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="QUAKE"
+            android:textSize="12sp"
+            android:textColor="#757575"/>
+    </LinearLayout>
+</LinearLayout>
