@@ -58,6 +58,7 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0") // Grafik Çizimi İçin
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.1")
+    implementation("com.google.android.gms:play-services-nearby:19.2.0")
 
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:33.1.1"))

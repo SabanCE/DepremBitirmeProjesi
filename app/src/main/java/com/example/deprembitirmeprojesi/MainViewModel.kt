@@ -33,6 +33,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(application)
     private var confirmationListener: ListenerRegistration? = null
 
+    // Acil Durum Moduna Geçiş İçin Sinyal
+    private val _navigateToEmergencyMode = MutableLiveData<Boolean>()
+    val navigateToEmergencyMode: LiveData<Boolean> get() = _navigateToEmergencyMode
+
+
     // Activity'nin dinleyeceği canlı veriler (LiveData)
     val earthquakeRecords: LiveData<List<EarthquakeRecord>> = database.earthquakeDao().getAllEarthquakes().asLiveData()
     val lastEarthquake: LiveData<EarthquakeRecord?> = database.earthquakeDao().getLastEarthquake().asLiveData()
@@ -46,6 +51,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         confirmationListener?.remove()
+    }
+
+    // BU KOD SADECE TEST İÇİNDİR!!!
+    fun simulateEmergencyMode() {
+        _toastMessage.postValue("Simülasyon: İnternet Yok! Acil Durum Moduna Geçiliyor...")
+        _navigateToEmergencyMode.postValue(true)
     }
 
     // Activity, deprem olduğunu bu fonksiyonu çağırarak ViewModel'e bildirir.
@@ -133,7 +144,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 listenForConfirmation(documentReference.id, record.magnitude)
                 checkForNearbyAlerts(record, currentUserId, documentReference.id)
             }
-            .addOnFailureListener { _toastMessage.postValue("❌ Gönderim Başarısız!") }
+            .addOnFailureListener {
+                _toastMessage.postValue("❌ İnternet Yok! Acil Durum Moduna Geçiliyor...")
+                _navigateToEmergencyMode.postValue(true)
+            }
     }
 
     private fun listenForConfirmation(documentId: String, magnitude: Float) {

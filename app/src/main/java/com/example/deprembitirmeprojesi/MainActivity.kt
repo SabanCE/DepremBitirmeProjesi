@@ -3,6 +3,7 @@ package com.example.deprembitirmeprojesi
 import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.MediaPlayer
@@ -30,12 +31,14 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
     private var mediaPlayer: MediaPlayer? = null
     private var isAlarmPlaying = false
 
-    // ViewModel'i başlat
     private val viewModel: MainViewModel by viewModels()
 
-    //Grafik verileri için liste
     private val entries = mutableListOf<Entry>()
     private var timeOfIndex = 0f
+
+    companion object {
+        private const val REQUEST_CODE_LOCATION = 100
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,7 +48,6 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
 
         setupUI()
         observeViewModel()
-        // Uygulama açılır açılmaz izin isteyelim
         requestLocationPermission()
 
         accelerometerHelper = AccelerometerHelper(this, this)
@@ -56,23 +58,22 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         adapter = EarthquakeAdapter()
         binding.recyclerView.adapter = adapter
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
+       // BU KOD SADECE TEST İÇİNDİR !!
         binding.btnSimulate.setOnClickListener {
-            simulateEarthquake()
+            // Acil durum modunu doğrudan test etmek için ViewModel'deki yeni fonksiyonu çağır
+            viewModel.simulateEmergencyMode()
         }
     }
 
     private fun observeViewModel() {
-        // Veritabanındaki kayıtları dinle ve listeyi güncelle
         viewModel.earthquakeRecords.observe(this) { list ->
             adapter.setData(list)
         }
 
-        // ViewModel'den gelen Toast mesajlarını dinle ve göster
         viewModel.toastMessage.observe(this) { message ->
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
 
-        // Arayüz durumunu dinle ve UI'ı güncelle
         viewModel.uiState.observe(this) { state ->
             when (state) {
                 is UiState.Safe -> {
@@ -80,31 +81,33 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
                     binding.txtStatus.setTextColor(ContextCompat.getColor(this, R.color.safe_green))
                 }
                 is UiState.ShakeDetected -> {
-                    val statusText = "⚠️ Sarsıntı Algılandı!\nTeyit Bekleniyor..."
-                    binding.txtStatus.text = statusText
+                    binding.txtStatus.text = "⚠️ Sarsıntı Algılandı!\nTeyit Bekleniyor..."
                     binding.txtStatus.setTextColor(ContextCompat.getColor(this, R.color.warning_orange))
                 }
                 is UiState.Confirmed -> {
-                    val statusText = "🚨 DEPREM KESİNLEŞTİ! \nYakında ${state.nearbyDevices} cihaz daha sallanıyor!"
-                    binding.txtStatus.text = statusText
+                    binding.txtStatus.text = "🚨 DEPREM KESİNLEŞTİ! \nYakında ${state.nearbyDevices} cihaz daha sallanıyor!"
                     binding.txtStatus.setTextColor(Color.RED)
-
-                    // ALARM VE ANİMASYONU SADECE TEYİT ALININCA BAŞLAT!
                     playAlarmSound()
                     playShakeAnimation()
                 }
             }
         }
+
+        // Acil Durum Moduna geçiş emrini dinle
+        viewModel.navigateToEmergencyMode.observe(this) { shouldNavigate ->
+            if (shouldNavigate) {
+                val intent = Intent(this, EmergencyActivity::class.java)
+                startActivity(intent)
+            }
+        }
     }
 
-    // 1. Deprem Olduğunda Burası Çalışır
     override fun onShakeDetected(force: Float) {
         if (hasLocationPermission()) {
-            // Sadece ViewModel'i haberdar et. Alarm veya animasyon burada BAŞLATILMAZ.
             viewModel.onEarthquakeDetected(force)
         } else {
             requestLocationPermission()
-            Toast.makeText(this, "Konum izni gerekli!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Deprem verisi için konum izni gerekli!", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -112,51 +115,51 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun requestLocationPermission(){
+    private fun requestLocationPermission() {
         if (!hasLocationPermission()) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 100)
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_CODE_LOCATION)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CODE_LOCATION) {
+            if (!(grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
+                Toast.makeText(this, "Konum izni olmadan ana özellikler çalışamaz.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
     private fun playShakeAnimation() {
-        val scaleX = PropertyValuesHolder.ofFloat(View.SCALE_X, 1.1f)
-        val scaleY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.1f)
-        val animator = ObjectAnimator.ofPropertyValuesHolder(binding.cardStatus, scaleX, scaleY)
-        animator.repeatCount = 5
-        animator.repeatMode = ObjectAnimator.REVERSE
-        animator.duration = 300
-        animator.start()
+        ObjectAnimator.ofPropertyValuesHolder(
+            binding.cardStatus,
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1.1f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.1f)
+        ).apply {
+            repeatCount = 5
+            repeatMode = ObjectAnimator.REVERSE
+            duration = 300
+            start()
+        }
     }
 
     private fun playAlarmSound() {
         if (isAlarmPlaying) return
         try {
-            mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)
-            mediaPlayer?.start()
-            isAlarmPlaying = true
-
-            object : CountDownTimer(5000, 1000) {
-                override fun onTick(millisUntilFinished: Long) {}
-                override fun onFinish() {
-                    stopAlarmSound()
-                }
-            }.start()
+            mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)?.apply {
+                isAlarmPlaying = true
+                start()
+                setOnCompletionListener { stopAlarmSound() }
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     private fun stopAlarmSound() {
-        mediaPlayer?.let {
-            if (it.isPlaying) it.stop()
-            it.release()
-        }
+        mediaPlayer?.release()
         mediaPlayer = null
         isAlarmPlaying = false
-    }
-
-    private fun simulateEarthquake() {
-        onShakeDetected(5.8f)
     }
 
     override fun onResume() {
@@ -174,7 +177,6 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         stopAlarmSound()
     }
 
-    // --- Grafik Çizim Fonksiyonları (UI ile ilgili olduğu için burada kalabilir) ---
     override fun onSensorChanged(x: Float, y: Float, z: Float) {
         binding.txtValues.text = "X: ${String.format("%.1f", x)} Y: ${String.format("%.1f", y)} Z: ${String.format("%.1f", z)}"
         val magnitude = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
@@ -185,25 +187,20 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         binding.sensorChart.setTouchEnabled(true)
         binding.sensorChart.setPinchZoom(true)
         binding.sensorChart.description = Description().apply { text = "İvmeölçer Verisi" }
-
-        val dataSet = LineDataSet(entries, "Sarsıntı")
-        dataSet.color = Color.BLUE
-        dataSet.setDrawCircles(false)
-        dataSet.lineWidth = 2f
-
+        val dataSet = LineDataSet(entries, "Sarsıntı").apply {
+            color = Color.BLUE
+            setDrawCircles(false)
+            lineWidth = 2f
+        }
         binding.sensorChart.data = LineData(dataSet)
     }
 
     private fun addEntryToChart(value: Float) {
         val data = binding.sensorChart.data ?: return
-        val set = data.getDataSetByIndex(0) ?: run {
-            val newSet = LineDataSet(null, "Sarsıntı")
-            data.addDataSet(newSet)
-            newSet
-        }
+        val set = data.getDataSetByIndex(0) ?: return
         data.addEntry(Entry(timeOfIndex++, value), 0)
         if (set.entryCount > 100) {
-            set.removeEntry(0)
+            set.removeFirst()
         }
         data.notifyDataChanged()
         binding.sensorChart.notifyDataSetChanged()
