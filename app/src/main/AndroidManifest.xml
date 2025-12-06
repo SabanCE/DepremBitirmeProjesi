@@ -2,27 +2,52 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- ===================================================================================== -->
+    <!-- DÜZENLEME 1: Donanım gereksinimleri eklendi. -->
+    <!-- Bu, uygulamanın Bluetooth olmayan cihazlarda (emülatör gibi) çalışmasına izin verir. -->
+    <!-- ===================================================================================== -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="true" />
+
+
     <!-- Temel İzinler -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+
     <!-- Konum İzinleri (Nearby için ZORUNLU) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION'ı kapsadığı için genellikle isteğe bağlıdır -->
+    <!-- ama kalmasında bir sakınca yok. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Bluetooth İzinleri (Nearby için ZORUNLU) -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- Wi-Fi İzinleri (Nearby için ZORUNLU) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+    <!-- Android 13 (API 33) ve üzeri için NEARBY_WIFI_DEVICES izni -->
+    <!-- "neverForLocation" flag'i, bu iznin konum tespiti için kullanılmadığını belirtir -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        tools:targetApi="33"
+        android:usesPermissionFlags="neverForLocation" />
 
-    android:uses-sdk-min-version="33" />
+
+    <!-- Bluetooth İzinleri (Nearby için ZORUNLU) -->
+    <!-- Eski Android sürümleri için (API 30 ve altı) -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- Android 12 (API 31) ve üzeri için YENİ Bluetooth izinleri -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+
+    <!-- ===================================================================================== -->
+    <!-- DÜZENLEME 2: Hatalı "uses-sdk-min-version" satırı kaldırıldı. -->
+    <!-- Bu tanım build.gradle dosyasında yer almalıdır. -->
+    <!-- ===================================================================================== -->
+
 
     <application
         android:allowBackup="true"
