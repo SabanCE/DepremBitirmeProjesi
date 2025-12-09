@@ -8,10 +8,9 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.MediaPlayer
 import android.os.Bundle
-import android.os.CountDownTimer
 import android.view.View
+import android.widget.PopupMenu
 import android.widget.Toast
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -22,6 +21,9 @@ import com.github.mikephil.charting.components.Description
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.ktx.Firebase
 
 class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListener {
 
@@ -32,6 +34,7 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
     private var isAlarmPlaying = false
 
     private val viewModel: MainViewModel by viewModels()
+    private lateinit var auth: FirebaseAuth
 
     private val entries = mutableListOf<Entry>()
     private var timeOfIndex = 0f
@@ -42,9 +45,10 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        auth = Firebase.auth
 
         setupUI()
         observeViewModel()
@@ -58,11 +62,37 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         adapter = EarthquakeAdapter()
         binding.recyclerView.adapter = adapter
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
-       // BU KOD SADECE TEST İÇİNDİR !!
+        // BU KOD SADECE TEST İÇİNDİR !!
         binding.btnSimulate.setOnClickListener {
-            // Acil durum modunu doğrudan test etmek için ViewModel'deki yeni fonksiyonu çağır
-            viewModel.simulateEmergencyMode()
+            val intent = Intent(this, UserEmergencyActivity::class.java)
+            startActivity(intent)
         }
+
+        binding.btnMenu.setOnClickListener { view ->
+            showPopupMenu(view)
+        }
+    }
+
+    private fun showPopupMenu(view: View) {
+        val popupMenu = PopupMenu(this, view)
+        popupMenu.menuInflater.inflate(R.menu.main_menu, popupMenu.menu)
+        popupMenu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.menu_profile -> {
+                    startActivity(Intent(this, ProfileActivity::class.java))
+                    true
+                }
+                R.id.menu_logout -> {
+                    auth.signOut()
+                    val intent = Intent(this, LoginActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    startActivity(intent)
+                    true
+                }
+                else -> false
+            }
+        }
+        popupMenu.show()
     }
 
     private fun observeViewModel() {
@@ -96,7 +126,7 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         // Acil Durum Moduna geçiş emrini dinle
         viewModel.navigateToEmergencyMode.observe(this) { shouldNavigate ->
             if (shouldNavigate) {
-                val intent = Intent(this, EmergencyActivity::class.java)
+                val intent = Intent(this, UserEmergencyActivity::class.java)
                 startActivity(intent)
             }
         }

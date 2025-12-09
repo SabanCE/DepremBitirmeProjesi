@@ -46,7 +46,7 @@ dependencies {
     val room_version = "2.6.1"
     implementation("androidx.room:room-runtime:$room_version")
     implementation("androidx.room:room-ktx:$room_version")
-    implementation("com.google.android.material:material:1.9.0")
+    // implementation("com.google.android.material:material:1.9.0") // Bu satır çakışmaya neden olduğu için kaldırıldı.
     kapt("androidx.room:room-compiler:$room_version")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
@@ -65,6 +65,11 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.android.gms:play-services-location:21.0.1")
+        implementation(platform("com.google.firebase:firebase-bom:33.1.1"))
+        implementation("com.google.firebase:firebase-auth")
+        implementation("com.google.firebase:firebase-analytics")
+
+
 
 
 }
