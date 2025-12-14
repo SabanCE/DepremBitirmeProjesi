@@ -31,6 +31,12 @@ object Constants {
     const val FIRESTORE_COLLECTION_ALERTS = "earthquake_alerts"
 
     /**
+     * Kullanıcı profillerinin saklandığı Firestore koleksiyonunun adı.
+     * Kullanıldığı Yer: `RegisterActivity.kt`, `LoginActivity.kt`, `ProfileActivity.kt`
+     */
+    const val FIRESTORE_COLLECTION_USERS = "users"
+
+    /**
      * Firestore'a kaydedilecek olan, insanlar tarafından okunabilir tarih ve saat metninin formatı.
      * Kullanıldığı Yer: `MainViewModel.kt`
      */
@@ -83,6 +89,12 @@ object Constants {
      * Kullanıldığı Yer: `AccelerometerHelper.kt`
      */
     const val SHAKE_THRESHOLD = 2.5f
+
+    /**
+     * Acil durum personeli rolünü tanımlayan sabit.
+     * Kullanıldığı Yer: `LoginActivity.kt`
+     */
+    const val ROLE_PERSONNEL = "personel"
 
     /**
      * Firestore veritabanındaki 'earthquake_alerts' koleksiyonunda kullanılan döküman alan adları.

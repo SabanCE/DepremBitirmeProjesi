@@ -1,4 +1,3 @@
-
 package com.example.deprembitirmeprojesi
 
 import android.Manifest
@@ -10,10 +9,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
@@ -24,6 +27,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.deprembitirmeprojesi.databinding.ActivityUserEmergencyBinding
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -36,15 +42,17 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
     private val logMessages = mutableListOf<String>()
 
     private var connectedEndpointId: String? = null
+    private var currentFullPayload: String = ""
     private var pendingAction: (() -> Unit)? = null
 
-    private val fusedLocationClient by lazy {
-        LocationServices.getFusedLocationProviderClient(this)
-    }
+    private val fusedLocationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private lateinit var auth: FirebaseAuth
+    private lateinit var firestore: FirebaseFirestore
 
     companion object {
         private const val REQUEST_CODE_PERMISSIONS = 101
         private const val TAG = "UserEmergencyActivity"
+        private const val RESTART_DELAY_MS = 3000L
     }
 
     private val requestBluetooth = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -68,9 +76,11 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         binding = ActivityUserEmergencyBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        auth = FirebaseAuth.getInstance()
+        firestore = FirebaseFirestore.getInstance()
+
         adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, logMessages)
         binding.listViewMessages.adapter = adapter
-
         nearbyManager = NearbyManager(this, this)
 
         setupClickListeners()
@@ -79,115 +89,181 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
 
     private fun setupClickListeners() {
         binding.btnStartAdvertising.setOnClickListener { startAdvertisingMode() }
-        binding.btnGood.setOnClickListener { sendMessage("İyiyim") }
-        binding.btnInjured.setOnClickListener { sendMessage("Yaralıyım") }
-        binding.btnWater.setOnClickListener { sendMessage("Su lazım") }
-        binding.btnStuck.setOnClickListener { sendMessage("Sıkıştım") }
         binding.btnReset.setOnClickListener { resetAll() }
-        binding.btnShowCustomMessage.setOnClickListener { showCustomMessagePanel(true) }
-        binding.btnSend.setOnClickListener {
-            sendMessage(binding.editMessage.text.toString())
-            binding.editMessage.text.clear()
-        }
-        binding.btnCancelCustomMessage.setOnClickListener { showCustomMessagePanel(false) }
-    }
 
-    private fun sendMessage(message: String) {
-        if (message.isNotBlank() && connectedEndpointId != null) {
-            nearbyManager.sendData(connectedEndpointId!!, message)
-            addLog("GÖNDERİLEN: $message")
-        } else if (connectedEndpointId == null) {
-            addLog("HATA: Mesaj göndermek için bir cihaza bağlı olmalısınız.")
+        binding.btnGood.setOnClickListener { sendMessage("DURUM: İYİYİM") }
+        binding.btnInjured.setOnClickListener { sendMessage("DURUM: YARALIYIM") }
+        binding.btnWater.setOnClickListener { sendMessage("DURUM: SU LAZIM") }
+        binding.btnStuck.setOnClickListener { sendMessage("DURUM: ENKAZ ALTINDAYIM") }
+
+        binding.btnSend.setOnClickListener {
+            val msg = binding.editMessage.text.toString()
+            if (msg.isNotBlank()) {
+                sendMessage("MESAJ: $msg")
+                binding.editMessage.text.clear()
+            }
         }
+
+        binding.btnShowCustomMessage.setOnClickListener { showCustomMessagePanel(true) }
+        binding.btnCancelCustomMessage.setOnClickListener { showCustomMessagePanel(false) }
     }
 
     private fun startAdvertisingMode() {
         startNearbyProcess {
-            getDeviceStatusPayload { payload ->
-                nearbyManager.startAdvertising(payload)
-                showMessagingUI()
-            }
+            fetchProfileAndPreparePayload()
         }
+    }
+
+    private fun fetchProfileAndPreparePayload() {
+        addLog("Veriler toplanıyor...")
+        val userId = auth.currentUser?.uid
+
+        if (userId == null) {
+            addLog("UYARI: Kullanıcı girişi yapılmamış. Sadece cihaz bilgileri gönderilecek.")
+            buildPayload(null) { payload -> startAdvertisingWithPayload(payload) }
+            return
+        }
+
+        firestore.collection("users").document(userId).get()
+            .addOnSuccessListener { document ->
+                val userProfile = try { document.toObject(UserProfile::class.java) } catch (e: Exception) { null }
+                buildPayload(userProfile) { payload -> startAdvertisingWithPayload(payload) }
+            }
+            .addOnFailureListener {
+                addLog("HATA: Profil alınamadı, temel verilerle devam ediliyor.")
+                buildPayload(null) { payload -> startAdvertisingWithPayload(payload) }
+            }
+    }
+
+    private fun startAdvertisingWithPayload(fullPayload: String) {
+        currentFullPayload = fullPayload
+        val shortName = "YARDIM_${auth.currentUser?.uid?.take(4)?.uppercase() ?: "GUEST"}"
+        nearbyManager.startAdvertising(shortName)
+        showMessagingUI()
     }
 
     @SuppressLint("MissingPermission")
-    private fun getDeviceStatusPayload(callback: (String) -> Unit) {
-        if (!hasAllPermissions()) {
-            callback("Error: Missing permissions")
-            return
-        }
-
+    private fun buildPayload(userProfile: UserProfile?, callback: (String) -> Unit) {
         val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
 
-        fusedLocationClient.lastLocation
-            .addOnSuccessListener { location: Location? ->
-                val locationStr = if (location != null) {
-                    "${location.latitude},${location.longitude}"
-                } else {
-                    "Konum bilgisi alınamadı"
+        var signalStrengthLevel = -1
+        var wifiRssi = -128
+
+        try {
+            val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                signalStrengthLevel = telephonyManager.signalStrength?.level ?: -1
+            }
+        } catch (e: SecurityException) {
+            addLog("HATA: Sinyal gücü için izin yok: ${e.message}")
+        } catch (e: Exception) {
+            addLog("HATA: Sinyal gücü alınamadı: ${e.message}")
+        }
+
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            if (wifiManager.isWifiEnabled) {
+                @Suppress("DEPRECATION")
+                val connectionInfo = wifiManager.connectionInfo
+                if (connectionInfo != null && connectionInfo.networkId != -1) {
+                    wifiRssi = connectionInfo.rssi
                 }
-                val payload = "DURUM:İYİ;BATARYA:$batteryLevel;KONUM:$locationStr"
-                callback(payload)
             }
-            .addOnFailureListener {
-                val payload = "DURUM:İYİ;BATARYA:$batteryLevel;KONUM:Konum alınamadı"
-                callback(payload)
+        } catch (e: Exception) {
+            addLog("HATA: Wi-Fi gücü alınamadı: ${e.message}")
+        }
+
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { location: Location? ->
+                formatPayload(userProfile, batteryLevel, signalStrengthLevel, wifiRssi, location, callback)
+            }
+            .addOnFailureListener { e ->
+                addLog("HATA: Konum bilgisi alınamadı: ${e.message}")
+                formatPayload(userProfile, batteryLevel, signalStrengthLevel, wifiRssi, null, callback)
             }
     }
 
-    private fun startNearbyProcess(action: () -> Unit) {
-        pendingAction = action
-        val isEmulatorDevice = isEmulator()
-        addLog("DEBUG: Cihaz emülatör mü? -> $isEmulatorDevice")
+    private fun formatPayload(userProfile: UserProfile?, batteryLevel: Int, signalLevel: Int, wifiRssi: Int, location: Location?, callback: (String) -> Unit) {
+        val locationStr = if (location != null) "${location.latitude}, ${location.longitude}" else "Konum Bilgisi Yok"
+        val signalStr = if (signalLevel != -1) "Sinyal Gücü: $signalLevel/4" else "Sinyal Gücü: Bilinmiyor"
+        val wifiStr = if (wifiRssi > -128) "Wi-Fi Gücü: $wifiRssi dBm" else "Wi-Fi: Bağlı Değil"
 
-        if (isEmulatorDevice) {
-            addLog("EMULATOR: İzin ve donanım kontrolleri atlanıyor.")
-            pendingAction?.invoke()
-            pendingAction = null
-            return
-        }
+        val profileInfo = StringBuilder().apply {
+            userProfile?.let {
+                append("Ad Soyad: ${it.fullName}\n")
+                if (it.tckn.isNotBlank()) append("TCKN: ${it.tckn}\n")
+                if (it.birthDate.isNotBlank()) append("Doğum Tarihi: ${it.birthDate}\n")
+                if (it.bloodType.isNotBlank()) append("Kan Grubu: ${it.bloodType}\n")
+            }
+        }.toString().trim()
 
-        when {
-            !hasAllPermissions() -> {
-                addLog("DEBUG: İzinler eksik. İstek gönderiliyor.")
-                requestNearbyPermissions()
-                return
-            }
-            !isLocationEnabled() -> {
-                addLog("DEBUG: Konum kapalı. Ayarlar açılıyor.")
-                showLocationSettings()
-                return
-            }
-            !isBluetoothEnabled() -> {
-                addLog("DEBUG: Bluetooth kapalı. Açma isteği gönderiliyor.")
-                requestBluetoothEnable()
-                return
-            }
-        }
+        val finalPayload = """
+        ${profileInfo}
+        ---
+        Batarya: $batteryLevel%
+        $signalStr
+        $wifiStr
+        Konum: $locationStr
+        """.trimIndent()
 
-        addLog("DEBUG: Tüm kontroller başarılı. Eylem çalıştırılıyor.")
-        pendingAction?.invoke()
-        pendingAction = null
+        callback(finalPayload)
     }
 
-    override fun onStatusChange(status: String) {
-        addLog("Durum: $status")
-        if (status.contains("✅ Cihaz Bağlandı!")) {
-            connectedEndpointId = status.substringAfter("(").substringBefore(")")
-            addLog("Bağlantı Kuruldu. Mesajlaşma Aktif.")
-        } else if (status.contains("⚠️ Bağlantı Koptu")) {
-            connectedEndpointId = null
-            addLog("Bağlantı Koptu. Mesajlaşma Devre Dışı.")
+    private fun sendMessage(message: String) {
+        if (connectedEndpointId != null) {
+            nearbyManager.sendData(connectedEndpointId!!, message)
+            addLog("GÖNDERİLEN: $message")
+        } else {
+            addLog("HATA: Mesaj göndermek için bir cihaza bağlı olmalısınız.")
         }
     }
 
-    override fun onDeviceFound(endpointId: String, deviceName: String) {
-        // This is not used in user mode
+    override fun onLogMessage(message: String) = addLog("DURUM: $message")
+
+    override fun onConnectionEstablished(endpointId: String) {
+        connectedEndpointId = endpointId
+        addLog("✅ BAĞLANTI KURULDU! Mesajlaşma Başlıyor...")
+
+        // KRİTİK DÜZELTME: stopAll() YERİNE stopAdvertisingOnly()
+        // Artık yeni kişi aramıyoruz ama mevcut kişiyle konuşmaya devam ediyoruz.
+        nearbyManager.stopAdvertisingOnly()
+
+        // Eğer elinde hazır büyük veri varsa gönder
+        if (currentFullPayload.isNotBlank()) {
+            nearbyManager.sendData(endpointId, currentFullPayload)
+        }
+
+        // Arayüzü Mesajlaşma Moduna Al (UI Güncellemesi)
+        runOnUiThread {
+            showMessagingUI()
+            binding.statusTextView.text = "PERSONEL İLE BAĞLI"
+        }
     }
+
+    override fun onConnectionLost(endpointId: String) {
+        connectedEndpointId = null
+        addLog("⚠️ Bağlantı koptu. Tekrar yayın yapılıyor...")
+        // Tekrar "Beni Bulun" demeye başla
+        startAdvertisingMode()
+    }
+
+    override fun onConnectionFailed(endpointId: String) {
+        addLog("Bağlantı denemesi başarısız oldu: $endpointId. Yayın devam ediyor.")
+    }
+
+    override fun onDeviceFound(endpointId: String, deviceName: String) { }
 
     override fun onDataReceived(endpointId: String, message: String) {
-        addLog("GELEN MESAJ: $message")
+        addLog("AFAD: $message")
+    }
+
+    private fun addLog(msg: String) {
+        Log.d(TAG, msg)
+        runOnUiThread {
+            logMessages.add(0, "${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())} - $msg")
+            adapter.notifyDataSetChanged()
+        }
     }
 
     private fun resetAll() {
@@ -208,8 +284,7 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
     private fun showMessagingUI() {
         binding.initialButtonsLayout.visibility = View.GONE
         binding.quickMessagesLayout.visibility = View.VISIBLE
-        binding.customMessagePanel.visibility = View.GONE
-        binding.statusTextView.text = "YARDIM SİNYALİ YAYILIYOR..."
+        binding.statusTextView.text = "YAYIN YAPILIYOR..."
     }
 
     private fun showCustomMessagePanel(show: Boolean) {
@@ -217,42 +292,38 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         binding.customMessagePanel.visibility = if (show) View.VISIBLE else View.GONE
     }
 
-    private fun addLog(message: String) {
-        Log.d(TAG, message)
-        runOnUiThread {
-            logMessages.add(0, "${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())} - $message")
-            adapter.notifyDataSetChanged()
-        }
-    }
-
-    private fun isLocationEnabled(): Boolean {
-        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-    }
-
-    private fun showLocationSettings() {
-        Toast.makeText(this, "Nearby API için Konum (GPS) servisleri açık olmalıdır.", Toast.LENGTH_LONG).show()
-        requestLocationSettings.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-    }
-
-    private fun isBluetoothEnabled(): Boolean {
-        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        return bluetoothManager.adapter?.isEnabled ?: false
-    }
-
-    private fun requestBluetoothEnable() {
-        val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Bluetooth Connect izni verilmemiş!", Toast.LENGTH_SHORT).show()
+    private fun startNearbyProcess(action: () -> Unit) {
+        pendingAction = action
+        if (isEmulator()) {
+            addLog("EMULATOR: Kontroller atlanıyor.")
+            pendingAction?.invoke()
+            pendingAction = null
             return
         }
-        requestBluetooth.launch(enableBtIntent)
+        when {
+            !hasAllPermissions() -> requestNearbyPermissions()
+            !isLocationEnabled() -> showLocationSettings()
+            !isBluetoothEnabled() -> requestBluetoothEnable()
+            else -> {
+                pendingAction?.invoke()
+                pendingAction = null
+            }
+        }
     }
 
-    private fun hasAllPermissions(): Boolean {
-        return getRequiredPermissions().all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
+    private fun isEmulator(): Boolean {
+        return (Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MANUFACTURER.contains("Genymotion")
+                || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || "google_sdk" == Build.PRODUCT)
+    }
+
+    private fun hasAllPermissions(): Boolean = getRequiredPermissions().all {
+        ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun getRequiredPermissions(): List<String> {
@@ -281,31 +352,40 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         }
     }
 
+    private fun isLocationEnabled(): Boolean {
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }
+
+    private fun showLocationSettings() {
+        Toast.makeText(this, "Konum (GPS) servisleri açık olmalıdır.", Toast.LENGTH_LONG).show()
+        requestLocationSettings.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+    }
+
+    private fun isBluetoothEnabled(): Boolean {
+        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        return bluetoothManager.adapter?.isEnabled ?: false
+    }
+
+    private fun requestBluetoothEnable() {
+        val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Bluetooth Connect izni verilmemiş!", Toast.LENGTH_SHORT).show()
+            return
+        }
+        requestBluetooth.launch(enableBtIntent)
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CODE_PERMISSIONS) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                addLog("DEBUG: İzinler kullanıcı tarafından verildi.")
                 pendingAction?.let { startNearbyProcess(it) }
             } else {
-                addLog("UYARI: Gerekli izinler reddedildi.")
-                Toast.makeText(this, "İletişim için gerekli tüm izinler verilmelidir.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Gerekli izinler verilmedi.", Toast.LENGTH_LONG).show()
                 pendingAction = null
             }
         }
-    }
-
-    private fun isEmulator(): Boolean {
-        return (Build.FINGERPRINT.startsWith("generic")
-                || Build.FINGERPRINT.startsWith("unknown")
-                || Build.MODEL.contains("google_sdk")
-                || Build.MODEL.contains("Emulator")
-                || Build.MODEL.contains("Android SDK built for x86")
-                || Build.MANUFACTURER.contains("Genymotion")
-                || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
-                || "google_sdk" == Build.PRODUCT
-                || Build.HARDWARE.contains("goldfish")
-                || Build.HARDWARE.contains("ranchu"))
     }
 
     override fun onDestroy() {

@@ -37,7 +37,6 @@ class ProfileActivity : AppCompatActivity() {
                         val userProfile = document.toObject(UserProfile::class.java)
                         if (userProfile != null) {
                             binding.etFullName.setText(userProfile.fullName)
-                            // TCKN, Doğum Tarihi gibi diğer alanları da buraya ekleyin
                             binding.etTCKN.setText(userProfile.tckn)
                             binding.etBirthDate.setText(userProfile.birthDate)
                             binding.etBloodType.setText(userProfile.bloodType)
@@ -47,6 +46,7 @@ class ProfileActivity : AppCompatActivity() {
                             binding.etAllergies.setText(userProfile.allergies)
                             binding.etRegularMedication.setText(userProfile.regularMedication)
                             binding.etPregnancyStatus.setText(userProfile.pregnancyStatus)
+                            binding.etApartmentInfo.setText(userProfile.apartmentInfo)
                             binding.etFloorInfo.setText(userProfile.floorInfo)
                         }
                     }
@@ -71,6 +71,7 @@ class ProfileActivity : AppCompatActivity() {
                 "allergies" to binding.etAllergies.text.toString(),
                 "regularMedication" to binding.etRegularMedication.text.toString(),
                 "pregnancyStatus" to binding.etPregnancyStatus.text.toString(),
+                "apartmentInfo" to binding.etApartmentInfo.text.toString(),
                 "floorInfo" to binding.etFloorInfo.text.toString()
             )
 

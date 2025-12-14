@@ -45,14 +45,17 @@ class LoginActivity : AppCompatActivity() {
                                 checkUserRoleAndNavigate(user.uid)
                             }
                         } else {
-                            try {
-                                throw task.exception!!
-                            } catch (e: FirebaseAuthInvalidUserException) {
-                                Toast.makeText(this, "Kullanıcı bulunamadı", Toast.LENGTH_SHORT).show()
-                            } catch (e: FirebaseAuthInvalidCredentialsException) {
-                                Toast.makeText(this, "Geçersiz e-posta veya şifre", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                Toast.makeText(this, "Giriş başarısız: ${e.message}", Toast.LENGTH_SHORT).show()
+                            val exception = task.exception
+                            when (exception) {
+                                is FirebaseAuthInvalidUserException -> {
+                                    Toast.makeText(this, "Kullanıcı bulunamadı", Toast.LENGTH_SHORT).show()
+                                }
+                                is FirebaseAuthInvalidCredentialsException -> {
+                                    Toast.makeText(this, "Geçersiz e-posta veya şifre", Toast.LENGTH_SHORT).show()
+                                }
+                                else -> {
+                                    Toast.makeText(this, "Giriş başarısız: ${exception?.message}", Toast.LENGTH_SHORT).show()
+                                }
                             }
                             binding.loginButton.isEnabled = true // Butonu tekrar etkinleştir
                         }
@@ -76,7 +79,7 @@ class LoginActivity : AppCompatActivity() {
         firestore.collection("users").document(userId).get()
             .addOnSuccessListener { document ->
                 val role = document.getString("role")
-                if (role == "personel") {
+                if (role == Constants.ROLE_PERSONNEL) {
                     navigateToEmergencyActivity()
                 } else {
                     navigateToMainActivity()

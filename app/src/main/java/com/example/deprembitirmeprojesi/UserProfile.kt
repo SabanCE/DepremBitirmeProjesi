@@ -3,7 +3,7 @@ package com.example.deprembitirmeprojesi
 data class UserProfile(
     val fullName: String = "",
     val email: String = "",
-    val role: String = "user", // Varsayılan rol eklendi
+    val role: String = "user",
     val tckn: String = "",
     val birthDate: String = "",
     val bloodType: String = "",
@@ -13,5 +13,6 @@ data class UserProfile(
     val allergies: String = "",
     val regularMedication: String = "",
     val pregnancyStatus: String = "",
-    val floorInfo: String = ""
+    val apartmentInfo: String = "", // Apartman Bilgisi eklendi
+    val floorInfo: String = "" // Kat Bilgisi
 )

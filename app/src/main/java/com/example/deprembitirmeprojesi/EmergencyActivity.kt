@@ -1,15 +1,12 @@
 package com.example.deprembitirmeprojesi
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.location.Location
 import android.location.LocationManager
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -24,7 +21,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.deprembitirmeprojesi.databinding.ActivityEmergencyBinding
-import com.google.android.gms.location.LocationServices
+import com.google.firebase.auth.FirebaseAuth
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,14 +35,12 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
 
     private var connectedEndpointId: String? = null
     private var pendingAction: (() -> Unit)? = null
-
-    private val fusedLocationClient by lazy {
-        LocationServices.getFusedLocationProviderClient(this)
-    }
+    private lateinit var auth: FirebaseAuth
 
     companion object {
         private const val REQUEST_CODE_PERMISSIONS = 101
         private const val TAG = "EmergencyActivity"
+        private const val RESTART_DELAY_MS = 2000L
     }
 
     private val requestBluetooth = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -54,7 +49,7 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
             pendingAction?.let { startNearbyProcess(it) }
         } else {
             addLog("UYARI: Bluetooth açma isteği reddedildi.")
-            Toast.makeText(this, "Bluetooth\'un açılması gerekli!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Bluetooth'un açılması gerekli!", Toast.LENGTH_SHORT).show()
             pendingAction = null
         }
     }
@@ -69,19 +64,28 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         binding = ActivityEmergencyBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        auth = FirebaseAuth.getInstance()
         adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, logMessages)
         binding.listViewMessages.adapter = adapter
-
         nearbyManager = NearbyManager(this, this)
 
         setupClickListeners()
-        showInitialUI() // Show the initial button to start searching
+        showInitialUI()
     }
 
     private fun setupClickListeners() {
         binding.btnStartDiscovery.setOnClickListener { startDiscoveryMode() }
         binding.btnReset.setOnClickListener { resetAll() }
         binding.btnSend.setOnClickListener { sendMessage(binding.editMessage.text.toString()) }
+        binding.btnLogout.setOnClickListener { logout() }
+    }
+
+    private fun logout() {
+        auth.signOut()
+        val intent = Intent(this, LoginActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        finish()
     }
 
     private fun startDiscoveryMode() {
@@ -136,19 +140,46 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         pendingAction = null
     }
 
-    override fun onStatusChange(status: String) {
-        addLog("Durum: $status")
-        if (status.contains("✅ Cihaz Bağlandı!")) {
-            connectedEndpointId = status.substringAfter("(").substringBefore(")")
-            addLog("Bağlantı Kuruldu. Mesajlaşma Aktif.")
-        } else if (status.contains("⚠️ Bağlantı Koptu")) {
-            connectedEndpointId = null
-            addLog("Bağlantı Koptu. Mesajlaşma Devre Dışı.")
-        }
+    override fun onLogMessage(message: String) {
+        addLog("Durum: $message")
     }
-    
-    override fun onDeviceFound(endpointId: String, deviceName: String) { addLog("✅ Cihaz Bulundu: $deviceName") }
-    override fun onDataReceived(endpointId: String, message: String) { addLog("📨 GELEN VERİ: $message") }
+
+    override fun onConnectionEstablished(endpointId: String) {
+        connectedEndpointId = endpointId
+        addLog("Bağlantı Kuruldu. Mesajlaşma Aktif.")
+    }
+
+    override fun onConnectionLost(endpointId: String) {
+        connectedEndpointId = null
+        addLog("Bağlantı Koptu. Yeni cihaz aranıyor...")
+        restartDiscoveryWithDelay()
+    }
+
+    override fun onConnectionFailed(endpointId: String) {
+        addLog("Bağlantı denemesi başarısız. Yeni cihaz aranıyor...")
+        restartDiscoveryWithDelay()
+    }
+
+    private fun restartDiscoveryWithDelay() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            startDiscoveryMode()
+        }, RESTART_DELAY_MS)
+    }
+
+    override fun onDeviceFound(endpointId: String, deviceName: String) {
+        addLog("Sinyal Bulundu: $deviceName. Otomatik bağlanılıyor...")
+
+    }
+
+    override fun onDataReceived(endpointId: String, message: String) {
+        addLog("\n====== 🆘 ACİL DURUM VERİSİ ======")
+
+        message.split("\n").forEach { line ->
+            if (line.isNotBlank()) addLog(line)
+        }
+
+        addLog("==================================\n")
+    }
 
     private fun resetAll() {
         nearbyManager.stopAll()
@@ -175,7 +206,8 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
     private fun addLog(message: String) {
         Log.d(TAG, message)
         runOnUiThread {
-            logMessages.add(0, "${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())} - $message")
+            val formattedMessage = "${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())} - $message"
+            logMessages.add(0, formattedMessage)
             adapter.notifyDataSetChanged()
         }
     }

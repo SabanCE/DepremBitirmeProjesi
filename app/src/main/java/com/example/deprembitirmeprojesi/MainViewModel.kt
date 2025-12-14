@@ -37,7 +37,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _navigateToEmergencyMode = MutableLiveData<Boolean>()
     val navigateToEmergencyMode: LiveData<Boolean> get() = _navigateToEmergencyMode
 
-
     // Activity'nin dinleyeceği canlı veriler (LiveData)
     val earthquakeRecords: LiveData<List<EarthquakeRecord>> = database.earthquakeDao().getAllEarthquakes().asLiveData()
     val lastEarthquake: LiveData<EarthquakeRecord?> = database.earthquakeDao().getLastEarthquake().asLiveData()
@@ -48,9 +47,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableLiveData<UiState>(UiState.Safe) // Başlangıç durumu: Güvende
     val uiState: LiveData<UiState> get() = _uiState
 
+    init {
+        _navigateToEmergencyMode.value = false
+    }
+
     override fun onCleared() {
         super.onCleared()
         confirmationListener?.remove()
+    }
+
+    fun onNavigationToEmergencyModeComplete() {
+        _navigateToEmergencyMode.value = false
     }
 
     // BU KOD SADECE TEST İÇİNDİR!!!
@@ -162,6 +169,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (snapshot.getString(Constants.FIELD_STATUS) == Constants.STATUS_EARTHQUAKE) {
                     val nearbyDevices = snapshot.getLong(Constants.FIELD_NEARBY_DEVICES)?.toInt() ?: 0
                     _uiState.postValue(UiState.Confirmed(magnitude, nearbyDevices))
+                    _navigateToEmergencyMode.postValue(true) // Yönlendirmeyi tetikle
                     confirmationListener?.remove()
                     confirmationListener = null
                 }

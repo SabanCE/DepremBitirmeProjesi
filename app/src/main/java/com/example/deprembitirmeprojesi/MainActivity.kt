@@ -128,6 +128,7 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
             if (shouldNavigate) {
                 val intent = Intent(this, UserEmergencyActivity::class.java)
                 startActivity(intent)
+                viewModel.onNavigationToEmergencyModeComplete() // Yönlendirme sonrası sinyali sıfırla
             }
         }
     }

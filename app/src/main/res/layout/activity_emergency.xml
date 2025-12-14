@@ -33,6 +33,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Sinyal Aramayı Başlat" />
+
+        <Button
+            android:id="@+id/btnLogout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Çıkış Yap" />
     </LinearLayout>
 
     <TextView

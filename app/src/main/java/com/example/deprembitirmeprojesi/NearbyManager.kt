@@ -4,95 +4,115 @@ import android.content.Context
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicBoolean
 
 class NearbyManager(private val context: Context, private val listener: NearbyListener) {
 
     interface NearbyListener {
         fun onDeviceFound(endpointId: String, deviceName: String)
         fun onDataReceived(endpointId: String, message: String)
-        fun onStatusChange(status: String)
+        fun onLogMessage(message: String)
+        fun onConnectionEstablished(endpointId: String)
+        fun onConnectionLost(endpointId: String)
+        fun onConnectionFailed(endpointId: String)
     }
 
     private val connectionsClient = Nearby.getConnectionsClient(context)
     private val serviceId = context.packageName
     private val strategy = Strategy.P2P_STAR
+    private val isConnectionLocked = AtomicBoolean(false)
+    private val foundEndpoints = mutableSetOf<String>()
 
-    fun startAdvertising(payload: String) {
+    fun startAdvertising(nickName: String) {
+        stopAll()
         val advertisingOptions = AdvertisingOptions.Builder().setStrategy(strategy).build()
         connectionsClient.startAdvertising(
-            payload,
-            serviceId,
-            connectionLifecycleCallback,
-            advertisingOptions
+            nickName, serviceId, connectionLifecycleCallback, advertisingOptions
         )
-            .addOnSuccessListener { listener.onStatusChange("📡 Yayın Başlatıldı (Strategy: STAR)") }
-            .addOnFailureListener { e -> listener.onStatusChange("❌ ADVERTISING FAILED: ${e.javaClass.simpleName} - ${e.message}") }
+            .addOnSuccessListener { listener.onLogMessage("📡 Yayın Başlatıldı: $nickName") }
+            .addOnFailureListener { e -> listener.onLogMessage("❌ YAYIN HATASI: ${e.message}") }
     }
 
     fun startDiscovery() {
+        stopAll()
         val discoveryOptions = DiscoveryOptions.Builder().setStrategy(strategy).build()
         connectionsClient.startDiscovery(
-            serviceId,
-            endpointDiscoveryCallback,
-            discoveryOptions
+            serviceId, endpointDiscoveryCallback, discoveryOptions
         )
-            .addOnSuccessListener { listener.onStatusChange("🔍 Tarama Başlatıldı (Strategy: STAR)") }
-            .addOnFailureListener { e -> listener.onStatusChange("❌ DISCOVERY FAILED: ${e.javaClass.simpleName} - ${e.message}") }
+            .addOnSuccessListener { listener.onLogMessage("🔍 Tarama Başlatıldı...") }
+            .addOnFailureListener { e -> listener.onLogMessage("❌ TARAMA HATASI: ${e.message}") }
     }
 
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            connectionsClient.stopDiscovery()
-            listener.onStatusChange("🔗 Bağlantı İsteği: ${info.endpointName}. Onaylanıyor...")
+            listener.onLogMessage("🔗 Bağlantı İsteği: ${info.endpointName}")
             connectionsClient.acceptConnection(endpointId, payloadCallback)
-                .addOnFailureListener { e -> listener.onStatusChange("❌ ACCEPT FAILED: ${e.javaClass.simpleName} - ${e.message}") }
         }
 
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
             if (result.status.statusCode == ConnectionsStatusCodes.STATUS_OK) {
-                listener.onStatusChange("✅ Cihaz Bağlandı! ($endpointId)")
+                listener.onLogMessage("✅ BAĞLANDI! ($endpointId)")
+                listener.onConnectionEstablished(endpointId)
             } else {
-                val error = "Code: ${result.status.statusCode} - ${result.status.statusMessage}"
-                listener.onStatusChange("❌ CONNECTION FAILED: $error")
+                listener.onLogMessage("❌ BAĞLANTI REDDEDİLDİ: ${result.status.statusMessage}")
+                listener.onConnectionFailed(endpointId)
             }
         }
 
         override fun onDisconnected(endpointId: String) {
-            listener.onStatusChange("⚠️ Bağlantı Koptu ($endpointId)")
+            listener.onLogMessage("⚠️ Bağlantı Koptu ($endpointId)")
+            listener.onConnectionLost(endpointId)
         }
     }
 
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
-            listener.onDeviceFound(endpointId, info.endpointName)
-            listener.onStatusChange("Cihaz bulundu: ${info.endpointName}. Bağlantı deneniyor...")
-            connectionsClient.requestConnection("Kurtaran Cihaz", endpointId, connectionLifecycleCallback)
-                .addOnFailureListener { e -> listener.onStatusChange("❌ REQUEST FAILED: ${e.javaClass.simpleName} - ${e.message}") }
+            if (!foundEndpoints.contains(endpointId)) {
+                foundEndpoints.add(endpointId)
+                listener.onDeviceFound(endpointId, info.endpointName)
+                listener.onLogMessage("Cihaz Bulundu: ${info.endpointName}. Bağlanılıyor...")
+
+                connectionsClient.requestConnection("AFAD_EKIBI", endpointId, connectionLifecycleCallback)
+                    .addOnFailureListener { e ->
+                        listener.onLogMessage("❌ BAĞLANTI İSTEĞİ HATASI: ${e.message}")
+                        listener.onConnectionFailed(endpointId)
+                    }
+            }
         }
 
         override fun onEndpointLost(endpointId: String) {
-            listener.onStatusChange("Cihaz Kayboldu: $endpointId")
+            foundEndpoints.remove(endpointId)
+            listener.onLogMessage("Cihaz Kapsamdan Çıktı: $endpointId")
         }
     }
 
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
             payload.asBytes()?.let {
-                listener.onDataReceived(endpointId, String(it, StandardCharsets.UTF_8))
+                val message = String(it, StandardCharsets.UTF_8)
+                listener.onDataReceived(endpointId, message)
             }
         }
-
-        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {}
+        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) { }
     }
 
     fun sendData(endpointId: String, message: String) {
         connectionsClient.sendPayload(endpointId, Payload.fromBytes(message.toByteArray(StandardCharsets.UTF_8)))
-            .addOnFailureListener { e -> listener.onStatusChange("❌ SEND FAILED: ${e.javaClass.simpleName} - ${e.message}") }
+            .addOnFailureListener { e -> listener.onLogMessage("❌ VERİ GÖNDERME HATASI: ${e.message}") }
     }
 
     fun stopAll() {
+        foundEndpoints.clear()
         connectionsClient.stopAllEndpoints()
         connectionsClient.stopAdvertising()
+        connectionsClient.stopDiscovery()
+    }
+
+    fun stopAdvertisingOnly() {
+        connectionsClient.stopAdvertising()
+    }
+
+    fun stopDiscoveryOnly() {
         connectionsClient.stopDiscovery()
     }
 }

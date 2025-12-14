@@ -42,7 +42,7 @@ class RegisterActivity : AppCompatActivity() {
                                     email = email
                                 )
                                 val db = Firebase.firestore
-                                db.collection("users").document(user.uid)
+                                db.collection(Constants.FIRESTORE_COLLECTION_USERS).document(user.uid)
                                     .set(userProfile)
                                     .addOnSuccessListener {
                                         Toast.makeText(this, "Kayıt Başarılı! Yönlendiriliyorsunuz...", Toast.LENGTH_LONG).show()

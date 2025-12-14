@@ -10,6 +10,7 @@ import java.util.Locale
 class EarthquakeAdapter : RecyclerView.Adapter<EarthquakeAdapter.ViewHolder>() {
 
     private var dataList = emptyList<EarthquakeRecord>()
+    private val sdf = SimpleDateFormat(Constants.DATE_FORMAT_ADAPTER, Locale.getDefault())
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val txtMagnitude: TextView = view.findViewById(R.id.txtMagnitude)
@@ -27,12 +28,9 @@ class EarthquakeAdapter : RecyclerView.Adapter<EarthquakeAdapter.ViewHolder>() {
         val item = dataList[position]
 
         holder.txtMagnitude.text = String.format("%.1f", item.magnitude)
-        //holder.txtType.text = item.type
         holder.txtType.text = item.address
 
-
         // Zaman damgasını (Long) okunabilir tarihe çevir
-        val sdf = SimpleDateFormat(Constants.DATE_FORMAT_ADAPTER, Locale.getDefault())
         holder.txtDate.text = sdf.format(Date(item.timestamp))
     }
 
