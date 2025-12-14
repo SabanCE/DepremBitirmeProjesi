@@ -20,11 +20,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
+import androidx.work.*
+import com.example.deprembitirmeprojesi.data.AppDatabase
+import com.example.deprembitirmeprojesi.data.DisasterReport
+import com.example.deprembitirmeprojesi.worker.UploadWorker
 import com.example.deprembitirmeprojesi.databinding.ActivityEmergencyBinding
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
+import java.util.concurrent.TimeUnit
 
 class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
 
@@ -36,11 +43,13 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
     private var connectedEndpointId: String? = null
     private var pendingAction: (() -> Unit)? = null
     private lateinit var auth: FirebaseAuth
+    private val database by lazy { AppDatabase.getDatabase(this) }
 
     companion object {
         private const val REQUEST_CODE_PERMISSIONS = 101
         private const val TAG = "EmergencyActivity"
         private const val RESTART_DELAY_MS = 2000L
+        private const val UPLOAD_WORK_NAME = "UploadReports"
     }
 
     private val requestBluetooth = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -78,6 +87,12 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         binding.btnReset.setOnClickListener { resetAll() }
         binding.btnSend.setOnClickListener { sendMessage(binding.editMessage.text.toString()) }
         binding.btnLogout.setOnClickListener { logout() }
+        // Hatalı olan kod buraya, doğru şekilde taşındı
+        binding.root.findViewById<View>(R.id.btnOpenMap).setOnClickListener {
+            // Harita Sayfasına Git
+            val intent = Intent(this, MapActivity::class.java)
+            startActivity(intent)
+        }
     }
 
     private fun logout() {
@@ -107,52 +122,39 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
 
     private fun startNearbyProcess(action: () -> Unit) {
         pendingAction = action
-        val isEmulatorDevice = isEmulator()
-        addLog("DEBUG: Cihaz emülatör mü? -> $isEmulatorDevice")
-
-        if (isEmulatorDevice) {
-            addLog("EMULATOR: İzin ve donanım kontrolleri atlanıyor.")
-            pendingAction?.invoke()
+        if (isEmulator()) {
+            addLog("EMULATOR: Kontroller atlanıyor.")
+            action.invoke()
             pendingAction = null
             return
         }
-
         when {
-            !hasAllPermissions() -> {
-                addLog("DEBUG: İzinler eksik. İstek gönderiliyor.")
-                requestNearbyPermissions()
-                return
-            }
-            !isLocationEnabled() -> {
-                addLog("DEBUG: Konum kapalı. Ayarlar açılıyor.")
-                showLocationSettings()
-                return
-            }
-            !isBluetoothEnabled() -> {
-                addLog("DEBUG: Bluetooth kapalı. Açma isteği gönderiliyor.")
-                requestBluetoothEnable()
-                return
+            !hasAllPermissions() -> requestNearbyPermissions()
+            !isLocationEnabled() -> showLocationSettings()
+            !isBluetoothEnabled() -> requestBluetoothEnable()
+            else -> {
+                action.invoke()
+                pendingAction = null
             }
         }
-
-        addLog("DEBUG: Tüm kontroller başarılı. Eylem çalıştırılıyor.")
-        pendingAction?.invoke()
-        pendingAction = null
     }
 
-    override fun onLogMessage(message: String) {
-        addLog("Durum: $message")
-    }
+    override fun onLogMessage(message: String) = addLog("Durum: $message")
 
     override fun onConnectionEstablished(endpointId: String) {
         connectedEndpointId = endpointId
-        addLog("Bağlantı Kuruldu. Mesajlaşma Aktif.")
+        addLog("✅ BAĞLANTI KURULDU! Veri bekleniyor...")
+        nearbyManager.stopDiscoveryOnly()
+        runOnUiThread {
+            showMessagingUI()
+            binding.titleTextView.text = "DEPREMZEDE İLE BAĞLI"
+        }
     }
 
     override fun onConnectionLost(endpointId: String) {
         connectedEndpointId = null
-        addLog("Bağlantı Koptu. Yeni cihaz aranıyor...")
-        restartDiscoveryWithDelay()
+        addLog("⚠️ Bağlantı koptu. Tekrar taranıyor...")
+        startDiscoveryMode()
     }
 
     override fun onConnectionFailed(endpointId: String) {
@@ -161,24 +163,72 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
     }
 
     private fun restartDiscoveryWithDelay() {
-        Handler(Looper.getMainLooper()).postDelayed({
-            startDiscoveryMode()
-        }, RESTART_DELAY_MS)
+        Handler(Looper.getMainLooper()).postDelayed({ startDiscoveryMode() }, RESTART_DELAY_MS)
     }
 
     override fun onDeviceFound(endpointId: String, deviceName: String) {
         addLog("Sinyal Bulundu: $deviceName. Otomatik bağlanılıyor...")
-
     }
 
     override fun onDataReceived(endpointId: String, message: String) {
-        addLog("\n====== 🆘 ACİL DURUM VERİSİ ======")
+        // Gelen mesajın kritik bir veri paketi mi yoksa anlık bir sohbet mesajı mı olduğunu anla.
+        // Ana veri paketimiz "---" ve "Batarya:" gibi anahtar kelimeler içeriyor.
+        val isEmergencyPayload = message.contains("---") && message.contains("Batarya:")
 
-        message.split("\n").forEach { line ->
-            if (line.isNotBlank()) addLog(line)
+        if (isEmergencyPayload) {
+            // Bu ana acil durum verisidir. Özel başlıkla logla ve kaydet.
+            addLog("\n====== 🆘 ACİL DURUM VERİSİ ======")
+            message.split("\n").forEach { if (it.isNotBlank()) addLog(it) }
+            addLog("==================================\n")
+
+            lifecycleScope.launch {
+                val newReport = DisasterReport(
+                    senderId = endpointId,
+                    rawMessage = message,
+                    receivedTimestamp = System.currentTimeMillis(),
+                    isUploaded = false
+                )
+                database.reportDao().insertReport(newReport)
+                addLog("💾 Acil Durum Verisi yerel hafızaya kaydedildi (Offline).")
+                scheduleUpload()
+            }
+        } else {
+            // Bu anlık bir durum/sohbet mesajıdır. Sadece ekrana logla.
+            addLog("GELEN MESAJ: $message")
         }
+    }
 
-        addLog("==================================\n")
+    private fun scheduleUpload() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val uploadRequest = OneTimeWorkRequestBuilder<UploadWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.SECONDS)
+            .build()
+
+        val workManager = WorkManager.getInstance(this)
+        workManager.enqueueUniqueWork(
+            UPLOAD_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            uploadRequest
+        )
+
+        addLog("☁️ Senkronizasyon kuyruğa alındı (İnternet bekleniyor...)")
+
+        // İŞİN DURUMUNU DİNLE
+        workManager.getWorkInfoByIdLiveData(uploadRequest.id)
+            .observe(this, Observer { workInfo ->
+                if (workInfo != null && workInfo.state == WorkInfo.State.SUCCEEDED) {
+                    val uploadedCount = workInfo.outputData.getInt(UploadWorker.KEY_UPLOAD_COUNT, 0)
+                    if (uploadedCount > 0) {
+                        addLog("✅☁️ $uploadedCount adet çevrimdışı rapor Firebase'e başarıyla yüklendi!")
+                    }
+                    // Gözlemciyi kaldır ki her seferinde tekrar tetiklenmesin.
+                    workManager.getWorkInfoByIdLiveData(uploadRequest.id).removeObservers(this)
+                }
+            })
     }
 
     private fun resetAll() {
@@ -236,10 +286,8 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         requestBluetooth.launch(enableBtIntent)
     }
 
-    private fun hasAllPermissions(): Boolean {
-        return getRequiredPermissions().all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
+    private fun hasAllPermissions(): Boolean = getRequiredPermissions().all {
+        ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun getRequiredPermissions(): List<String> {
@@ -272,11 +320,9 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CODE_PERMISSIONS) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                addLog("DEBUG: İzinler kullanıcı tarafından verildi.")
                 pendingAction?.let { startNearbyProcess(it) }
             } else {
-                addLog("UYARI: Gerekli izinler reddedildi.")
-                Toast.makeText(this, "İletişim için gerekli tüm izinler verilmelidir.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Gerekli izinler verilmedi.", Toast.LENGTH_LONG).show()
                 pendingAction = null
             }
         }
@@ -290,9 +336,7 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
                 || Build.MODEL.contains("Android SDK built for x86")
                 || Build.MANUFACTURER.contains("Genymotion")
                 || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
-                || "google_sdk" == Build.PRODUCT
-                || Build.HARDWARE.contains("goldfish")
-                || Build.HARDWARE.contains("ranchu"))
+                || "google_sdk" == Build.PRODUCT)
     }
 
     override fun onDestroy() {

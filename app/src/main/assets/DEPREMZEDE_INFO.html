@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Çevrimdışı Kaydedilen Raporlar</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css">
+    <style>
+        body { background-color: #1a1a2e; color: white; font-family: 'Segoe UI', sans-serif; }
+        .card { background-color: #16213e; border: 1px solid #0f3460; transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .card-header { background-color: #0f3460; font-weight: bold; }
+        .list-group-item { background-color: transparent; border-color: rgba(255, 255, 255, 0.1); color: white; } /* Metin rengini beyaz yap */
+        .list-group-item strong { color: #bdc1c6; padding-right: 10px; } /* Etiket rengini ve boşluğu ayarla */
+        .badge { font-size: 0.9em; }
+        .btn-back { position: absolute; top: 20px; left: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid p-4">
+
+    <a href="panel.html" class="btn btn-secondary btn-back"><i class="bi bi-arrow-left"></i> Geri Dön</a>
+
+    <div class="text-center mb-4">
+        <h2 class="fw-bold text-warning">ÇEVRİMDIŞI KAYDEDİLEN RAPORLAR</h2>
+        <p class="text-muted">Sahadaki personel tarafından internet olmayan ortamlarda kaydedilip senkronize edilen depremzede verileri.</p>
+    </div>
+
+    <div class="row g-4" id="reportsContainer">
+        <!-- Raporlar Buraya Yüklenecek -->
+        <div class="col-12 text-center mt-5">
+            <div class="spinner-border text-light" role="status">
+                <span class="visually-hidden">Yükleniyor...</span>
+            </div>
+            <p class="mt-2">Raporlar yükleniyor...</p>
+        </div>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<script type="module">
+  const firebaseConfig = {
+    apiKey: "AIzaSyBof0Xantayt6F5oUQkzYTyw1he3_-C3ZI",
+    authDomain: "depremiletisimsistemi.firebaseapp.com",
+    projectId: "depremiletisimsistemi",
+    storageBucket: "depremiletisimsistemi.firebasestorage.app",
+    messagingSenderId: "394198048936",
+    appId: "1:394198048936:web:9877782b029240ef80a29d",
+    measurementId: "G-1J493388Y9"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  const reportsContainer = document.getElementById('reportsContainer');
+
+  function parseMessage(rawMessage) {
+      const lines = rawMessage.split('\n');
+      const data = {};
+      lines.forEach(line => {
+          if (line.includes(':')) {
+              const [key, ...valueParts] = line.split(':');
+              const value = valueParts.join(':').trim();
+              const keyTrimmed = key.trim();
+
+              if (keyTrimmed === "Ad Soyad") data.adSoyad = value;
+              else if (keyTrimmed === "TCKN") data.tckn = value;
+              else if (keyTrimmed === "Doğum Tarihi") data.dogumTarihi = value;
+              else if (keyTrimmed === "Kan Grubu") data.kanGrubu = value;
+              else if (keyTrimmed === "Batarya") data.batarya = value;
+              else if (keyTrimmed === "Sinyal Gücü") data.sinyal = value;
+              else if (keyTrimmed === "Wi-Fi Gücü") data.wifi = value;
+              else if (keyTrimmed === "Konum") data.konum = value;
+          }
+      });
+      return data;
+  }
+
+  function createReportCard(reportData, docId) {
+      const parsedData = parseMessage(reportData.original_message);
+
+      const receivedDate = new Date(reportData.received_at).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' });
+      
+      const locationHtml = parsedData.konum && parsedData.konum !== "Konum Bilgisi Yok" 
+          ? `<a href="https://www.google.com/maps?q=${parsedData.konum}" target="_blank" class="text-warning">Haritada Göster <i class="bi bi-geo-alt-fill"></i></a>`
+          : '<span>Konum Yok</span>';
+
+      return `
+        <div class="col-lg-4 col-md-6 col-sm-12">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>${parsedData.adSoyad || 'İsim Bilinmiyor'}</span>
+                    <span class="badge bg-info">${receivedDate}</span>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group list-group-flush">
+                        ${parsedData.tckn ? `<li class="list-group-item d-flex justify-content-between"><strong>TCKN:</strong> <span>${parsedData.tckn}</span></li>` : ''}
+                        ${parsedData.dogumTarihi ? `<li class="list-group-item d-flex justify-content-between"><strong>Doğum Tarihi:</strong> <span>${parsedData.dogumTarihi}</span></li>` : ''}
+                        ${parsedData.kanGrubu ? `<li class="list-group-item d-flex justify-content-between"><strong>Kan Grubu:</strong> <span class="fw-bold text-danger">${parsedData.kanGrubu}</span></li>` : ''}
+                        <li class="list-group-item d-flex justify-content-between"><strong>Konum:</strong> ${locationHtml}</li>
+                    </ul>
+                    <hr class="border-light">
+                     <h6 class="text-muted">Cihaz Bilgileri</h6>
+                     <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between"><i class="bi bi-battery-full text-success"></i> Batarya: <span>${parsedData.batarya || 'N/A'}</span></li>
+                        <li class="list-group-item d-flex justify-content-between"><i class="bi bi-reception-4 text-info"></i> Sinyal: <span>${parsedData.sinyal || 'N/A'}</span></li>
+                        <li class="list-group-item d-flex justify-content-between"><i class="bi bi-wifi text-primary"></i> Wi-Fi: <span>${parsedData.wifi || 'N/A'}</span></li>
+                     </ul>
+                </div>
+            </div>
+        </div>
+      `;
+  }
+
+  db.collection("disaster_reports").orderBy("received_at", "desc").onSnapshot(snapshot => {
+      if (snapshot.empty) {
+          reportsContainer.innerHTML = '<div class="col-12 text-center mt-5"><h4 class="text-muted">Henüz senkronize edilmiş bir rapor bulunmuyor.</h4></div>';
+          return;
+      }
+      
+      reportsContainer.innerHTML = ''; // Temizle
+      snapshot.forEach(doc => {
+          reportsContainer.innerHTML += createReportCard(doc.data(), doc.id);
+      });
+
+  }, error => {
+      console.error("Raporları çekerken hata: ", error);
+      reportsContainer.innerHTML = '<div class="col-12 text-center mt-5"><h4 class="text-danger">Raporlar yüklenemedi. Lütfen konsolu kontrol edin.</h4></div>';
+  });
+</script>
+
+</body>
+</html>

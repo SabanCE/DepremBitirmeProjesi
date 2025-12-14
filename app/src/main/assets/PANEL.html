@@ -27,9 +27,10 @@
             <h2 class="fw-bold text-danger">AFET YÖNETİM MERKEZİ</h2>
             <small class="text-muted">Canlı Veri Akışı - Sadece Teyitli Depremler</small>
         </div>
-        <div class="text-end">
-            <h4 id="clock">00:00:00</h4>
-            <span class="badge bg-success">SİSTEM AKTİF</span>
+        <div class="text-end d-flex align-items-center">
+            <h4 id="clock" class="mb-0">00:00:00</h4>
+            <span class="badge bg-success mx-3">SİSTEM AKTİF</span>
+            <a href="depremzede_info.html" class="btn btn-warning fw-bold">ENKAZ ALTINDAKİLER</a>
         </div>
     </div>
 
@@ -108,15 +109,13 @@
         let markers = [];
         let isFirstLoad = true; 
         
-        // --- YENİ DEĞİŞKENLER ---
         const STATUS_DEPREM = "DEPREM";
         const TIME_THRESHOLD_MS = 30000; // 30 Saniye
 
-        // --- GÜNCELLENMİŞ SORGU ---
         db.collection("earthquake_alerts")
-          .where("status", "==", STATUS_DEPREM) // Sadece status'u DEPREM olanları al
+          .where("status", "==", STATUS_DEPREM)
           .orderBy("timestamp", "desc")
-          .limit(100) // Tekilleştirme için daha geniş bir veri seti al
+          .limit(100)
           .onSnapshot((snapshot) => {
             const tableBody = document.getElementById("alertTableBody");
             
@@ -130,26 +129,21 @@
                 return;
             }
 
-            // --- YENİ: Tekilleştirme Mantığı ---
             const uniqueDocs = [];
             let lastTimestamp = 0;
 
             snapshot.forEach(doc => {
-                // Eğer bu ilk dokümansa veya son eklenenden 30 saniyeden daha eskiyse, bunu yeni bir olay olarak kabul et.
                 if (lastTimestamp === 0 || (lastTimestamp - doc.data().timestamp) > TIME_THRESHOLD_MS) {
                     uniqueDocs.push(doc);
                     lastTimestamp = doc.data().timestamp;
                 }
             });
-            // uniqueDocs dizisi artık her bir deprem olayı için sadece TEK bir kayıt içeriyor.
             
             tableBody.innerHTML = "";
-            let isMostRecent = true; // Listenin en başındaki ilk elemanı bulmak için
+            let isMostRecent = true;
 
             uniqueDocs.forEach((doc) => {
                 const data = doc.data();
-
-                // Tabloyu doldur
                 const row = `
                     <tr>
                         <td>${data.datetime || 'Yok'}</td>
@@ -159,29 +153,23 @@
                 `;
                 tableBody.innerHTML += row;
 
-                // Haritaya marker ekle
                 if(data.latitude && data.longitude) {
                     const marker = L.marker([data.latitude, data.longitude]).addTo(map)
                         .bindPopup(`<b>${data.city} (${Number(data.magnitude).toFixed(1)})</b><br>${data.datetime}`);
                     markers.push(marker);
 
-                    // En son olayı işle (sadece listenin en başındaki ilk eleman)
                     if (isMostRecent) {
                          map.setView([data.latitude, data.longitude], 13);
                          document.getElementById("lastMag").innerText = Number(data.magnitude).toFixed(1);
-
-                         // Sayfa ilk yüklendiğinde değil, sadece yeni bir veri geldiğinde alarm göster.
                          if (!isFirstLoad) {
                              showAlertBox(data);
                          }
-                         isMostRecent = false; // Diğerleri en son olay değil
+                         isMostRecent = false;
                     }
                 }
             });
             
-            // Toplam sayıyı tekilleştirilmiş liste üzerinden güncelle
             document.getElementById("totalCount").innerText = uniqueDocs.length;
-
             isFirstLoad = false; 
 
         }, (error) => {
@@ -199,7 +187,7 @@
         const detail = document.getElementById("alertDetail");
         box.classList.remove("d-none");
         detail.innerText = `MERKEZ: ${data.city} / ${data.district} - BÜYÜKLÜK: ${Number(data.magnitude).toFixed(1)}`;
-        setTimeout(() => { box.classList.add("d-none"); }, 8000); // Alarm kutusu 8 saniye görünsün
+        setTimeout(() => { box.classList.add("d-none"); }, 8000);
     }
 
     setInterval(() => {
