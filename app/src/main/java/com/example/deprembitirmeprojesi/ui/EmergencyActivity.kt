@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
@@ -23,10 +23,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import androidx.work.*
+import com.example.deprembitirmeprojesi.R
 import com.example.deprembitirmeprojesi.data.AppDatabase
 import com.example.deprembitirmeprojesi.data.DisasterReport
-import com.example.deprembitirmeprojesi.worker.UploadWorker
 import com.example.deprembitirmeprojesi.databinding.ActivityEmergencyBinding
+import com.example.deprembitirmeprojesi.nearby.NearbyManager
+import com.example.deprembitirmeprojesi.worker.UploadWorker
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat

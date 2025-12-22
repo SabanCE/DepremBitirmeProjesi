@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 
 import android.content.Intent
 import android.os.Bundle
@@ -6,7 +6,9 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityRegisterBinding
+import com.example.deprembitirmeprojesi.util.Constants
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.ktx.firestore

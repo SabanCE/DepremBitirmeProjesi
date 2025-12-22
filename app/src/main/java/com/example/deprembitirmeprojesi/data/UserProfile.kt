@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.data
 
 data class UserProfile(
     val fullName: String = "",

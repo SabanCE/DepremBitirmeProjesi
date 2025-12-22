@@ -1,10 +1,11 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.deprembitirmeprojesi.databinding.ActivityLoginBinding
+import com.example.deprembitirmeprojesi.util.Constants
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
@@ -76,7 +77,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun checkUserRoleAndNavigate(userId: String) {
-        firestore.collection("users").document(userId).get()
+        firestore.collection(Constants.FIRESTORE_COLLECTION_USERS).document(userId).get()
             .addOnSuccessListener { document ->
                 val role = document.getString("role")
                 if (role == Constants.ROLE_PERSONNEL) {

@@ -1,8 +1,9 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Toast
+import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityProfileBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore

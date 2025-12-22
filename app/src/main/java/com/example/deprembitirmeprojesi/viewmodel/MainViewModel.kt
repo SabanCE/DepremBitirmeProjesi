@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.viewmodel
 
 import android.annotation.SuppressLint
 import android.app.Application
@@ -9,6 +9,13 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.example.deprembitirmeprojesi.data.AppDatabase
+import com.example.deprembitirmeprojesi.data.EarthquakeRecord
+import com.example.deprembitirmeprojesi.util.Constants
+import com.example.deprembitirmeprojesi.worker.AlertCleanupWorker
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.FirebaseFirestore
@@ -17,6 +24,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 // Arayüzün farklı durumlarını temsil eden kapalı sınıf (Sealed Class)
 sealed class UiState {
@@ -32,6 +40,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val firestore = FirebaseFirestore.getInstance()
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(application)
     private var confirmationListener: ListenerRegistration? = null
+    private val workManager = WorkManager.getInstance(application)
+
+    private var lastShakeTimestamp = 0L
+    private val SHAKE_COOLDOWN_MS = 10000 // 10 saniye
 
     // Acil Durum Moduna Geçiş İçin Sinyal
     private val _navigateToEmergencyMode = MutableLiveData<Boolean>()
@@ -60,15 +72,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _navigateToEmergencyMode.value = false
     }
 
-    // BU KOD SADECE TEST İÇİNDİR!!!
-    fun simulateEmergencyMode() {
-        _toastMessage.postValue("Simülasyon: İnternet Yok! Acil Durum Moduna Geçiliyor...")
-        _navigateToEmergencyMode.postValue(true)
-    }
-
-    // Activity, deprem olduğunu bu fonksiyonu çağırarak ViewModel'e bildirir.
     fun onEarthquakeDetected(magnitude: Float) {
-        // Sarsıntı algılandığında arayüzü hemen "ShakeDetected" durumuna geçir.
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastShakeTimestamp < SHAKE_COOLDOWN_MS) {
+            return
+        }
+        lastShakeTimestamp = currentTime
+
         _uiState.postValue(UiState.ShakeDetected(magnitude))
         processEarthquakeData(magnitude)
     }
@@ -99,6 +109,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             longitude = location.longitude
             try {
                 val geocoder = Geocoder(context, Locale.getDefault())
+                @Suppress("DEPRECATION")
                 val addresses = geocoder.getFromLocation(latitude, longitude, 1)
                 if (addresses != null && addresses.isNotEmpty()) {
                     val adr = addresses[0]
@@ -114,16 +125,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _toastMessage.postValue("Uyarı: Konum bilgisi alınamadı. Teyit başarısız olabilir.")
         }
 
-        val newRecord = EarthquakeRecord(
-            timestamp = currentTime,
-            magnitude = magnitude,
-            type = Constants.EARTHQUAKE_TYPE,
-            address = addressText,
-            latitude = latitude,
-            longitude = longitude
-        )
+        viewModelScope.launch {
+            val newRecord = EarthquakeRecord(
+                timestamp = currentTime,
+                magnitude = magnitude,
+                status = Constants.STATUS_ANALYSING, // Durum Analiz Ediliyor olarak ayarlandı
+                address = addressText,
+                latitude = latitude,
+                longitude = longitude
+            )
+            val recordId = database.earthquakeDao().insert(newRecord)
 
-        sendToFirebase(newRecord, city, district)
+            // Firebase'e gönder ve başarılı olursa temizlik görevini planla
+            sendToFirebase(newRecord.copy(id = recordId), city, district)
+        }
+    }
+
+    private fun scheduleCleanupWorker(localRecordId: Long, firebaseDocId: String) {
+        val cleanupRequest = OneTimeWorkRequestBuilder<AlertCleanupWorker>()
+            .setInitialDelay(40, TimeUnit.SECONDS)
+            .setInputData(workDataOf(
+                "KEY_RECORD_ID" to localRecordId,
+                "KEY_FIREBASE_DOC_ID" to firebaseDocId // Firebase ID'sini de ekle
+            ))
+            .addTag("cleanup_$localRecordId")
+            .build()
+        
+        workManager.enqueue(cleanupRequest)
     }
 
     private fun sendToFirebase(record: EarthquakeRecord, city: String, dist: String) {
@@ -141,13 +169,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Constants.FIELD_TIMESTAMP to record.timestamp,
             Constants.FIELD_DATETIME to dateStr,
             Constants.FIELD_STATUS to Constants.STATUS_ANALYSING,
-            Constants.FIELD_NEARBY_DEVICES to 0
+            Constants.FIELD_NEARBY_DEVICES to 0,
+            "local_db_id" to record.id // Yerel DB ID'sini Firestore'a ekliyoruz
         )
 
         _toastMessage.postValue("✅ Sinyal Gönderildi. Çevresel teyit aranıyor...")
 
         firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).add(alertData)
             .addOnSuccessListener { documentReference ->
+                // Gecikmeli temizlik görevini Firebase ID ile planla
+                scheduleCleanupWorker(record.id, documentReference.id)
+
                 listenForConfirmation(documentReference.id, record.magnitude)
                 checkForNearbyAlerts(record, currentUserId, documentReference.id)
             }
@@ -168,6 +200,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (snapshot != null && snapshot.exists()) {
                 if (snapshot.getString(Constants.FIELD_STATUS) == Constants.STATUS_EARTHQUAKE) {
                     val nearbyDevices = snapshot.getLong(Constants.FIELD_NEARBY_DEVICES)?.toInt() ?: 0
+                    val localDbId = snapshot.getLong("local_db_id")
+                    
+                    if(localDbId != null) {
+                        // Deprem onaylandığında, planlanan temizlik görevini iptal et
+                        workManager.cancelAllWorkByTag("cleanup_$localDbId")
+                        viewModelScope.launch {
+                            database.earthquakeDao().updateStatus(localDbId, Constants.STATUS_EARTHQUAKE)
+                        }
+                    }
+                    
                     _uiState.postValue(UiState.Confirmed(magnitude, nearbyDevices))
                     _navigateToEmergencyMode.postValue(true) // Yönlendirmeyi tetikle
                     confirmationListener?.remove()
@@ -221,11 +263,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _toastMessage.postValue("Durum güncelleme başarısız: ${it.message}")
                     }
 
-                    viewModelScope.launch {
-                        database.earthquakeDao().insert(recordToInsert)
-                    }
                 } else {
-                     // Teyit alınamadı, arayüzü tekrar "Güvende" durumuna geçir.
                     _uiState.postValue(UiState.Safe)
                     _toastMessage.postValue("⚠️ Teyit Alınamadı: Yakında başka sinyal yok.")
                 }

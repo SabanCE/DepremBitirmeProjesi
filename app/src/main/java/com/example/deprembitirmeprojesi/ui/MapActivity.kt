@@ -1,10 +1,11 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 
 import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.example.deprembitirmeprojesi.R
 import com.example.deprembitirmeprojesi.data.AppDatabase
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap

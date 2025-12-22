@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.util
 
 /**
  * Proje genelinde kullanılan sabit değerleri içeren bir nesne.

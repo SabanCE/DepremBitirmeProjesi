@@ -94,20 +94,11 @@
             android:layout_height="60dp"
             android:layout_marginTop="10dp"
             android:backgroundTint="@color/danger_red"
-            android:text="⚠️ DEPREM SİMÜLASYONU BAŞLAT"
+            android:text="🚨 ACİL DURUM YARDIM ÇAĞRISI 🚨"
             android:textSize="16sp"
             android:textStyle="bold"
             app:cornerRadius="12dp" />
 
-        <Button
-            android:id="@+id/btnEmergencyCall"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="🚨 ACİL DURUM YARDIM ÇAĞRISI 🚨"
-            android:visibility="gone"
-            app:backgroundTint="@color/design_default_color_error"
-            tools:visibility="visible" />
 
     </LinearLayout>
 

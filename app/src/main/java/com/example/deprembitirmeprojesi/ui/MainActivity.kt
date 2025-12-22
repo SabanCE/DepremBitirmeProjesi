@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 
 import android.Manifest
 import android.animation.ObjectAnimator
@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.MediaPlayer
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.PopupMenu
 import android.widget.Toast
@@ -16,7 +18,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.deprembitirmeprojesi.R
 import com.example.deprembitirmeprojesi.databinding.ActivityMainBinding
+import com.example.deprembitirmeprojesi.util.AccelerometerHelper
+import com.example.deprembitirmeprojesi.viewmodel.MainViewModel
+import com.example.deprembitirmeprojesi.viewmodel.UiState
 import com.github.mikephil.charting.components.Description
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
@@ -178,9 +184,13 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         if (isAlarmPlaying) return
         try {
             mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)?.apply {
+                isLooping = false // Döngüyü kapat
                 isAlarmPlaying = true
                 start()
-                setOnCompletionListener { stopAlarmSound() }
+                // 4 saniye sonra alarmı durdur
+                Handler(Looper.getMainLooper()).postDelayed({
+                    stopAlarmSound()
+                }, 4000)
             }
         } catch (e: Exception) {
             e.printStackTrace()

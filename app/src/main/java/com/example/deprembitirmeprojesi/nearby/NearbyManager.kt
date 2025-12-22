@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.nearby
 
 import android.content.Context
 import com.google.android.gms.nearby.Nearby

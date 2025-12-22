@@ -1,4 +1,4 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -25,7 +25,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityUserEmergencyBinding
+import com.example.deprembitirmeprojesi.nearby.NearbyManager
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.auth.FirebaseAuth

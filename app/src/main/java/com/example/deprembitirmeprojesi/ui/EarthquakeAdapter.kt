@@ -1,9 +1,12 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.ui
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.example.deprembitirmeprojesi.R
+import com.example.deprembitirmeprojesi.data.EarthquakeRecord
+import com.example.deprembitirmeprojesi.util.Constants
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

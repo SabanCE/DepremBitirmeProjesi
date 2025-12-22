@@ -1,9 +1,10 @@
-package com.example.deprembitirmeprojesi
+package com.example.deprembitirmeprojesi.util
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import com.example.deprembitirmeprojesi.util.Constants
 import kotlin.math.sqrt
 
 // Bu sınıf sensör verisini dinler ve MainActivity'e haber verir

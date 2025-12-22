@@ -49,13 +49,13 @@
             android:value="AIzaSyCoTMK3S6vaNEEOPqwhowyiuNTIzqs1Gwc" />
 
         <activity
-            android:name=".MapActivity"
+            android:name=".ui.MapActivity"
             android:exported="false" />
         <activity
-            android:name=".RegisterActivity"
+            android:name=".ui.RegisterActivity"
             android:exported="false" />
         <activity
-            android:name=".LoginActivity"
+            android:name=".ui.LoginActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -63,16 +63,16 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="false" />
         <activity
-            android:name=".EmergencyActivity"
+            android:name=".ui.EmergencyActivity"
             android:label="Acil Durum Modu" />
         <activity
-            android:name=".UserEmergencyActivity"
+            android:name=".ui.UserEmergencyActivity"
             android:label="Yardım Modu" />
         <activity
-            android:name=".ProfileActivity"
+            android:name=".ui.ProfileActivity"
             android:label="Profil" />
     </application>
 
