@@ -14,11 +14,17 @@ interface ReportDao {
     @Query("SELECT * FROM disaster_reports WHERE senderId = :senderId LIMIT 1")
     suspend fun getReportBySender(senderId: String): DisasterReport?
 
-    @Query("SELECT * FROM disaster_reports ORDER BY lastSeenTimestamp DESC")
+    @Query("SELECT * FROM disaster_reports WHERE role != 'AFAD' ORDER BY lastSeenTimestamp DESC")
+    fun getAllReportsFlow(): kotlinx.coroutines.flow.Flow<List<DisasterReport>>
+
+    @Query("SELECT * FROM disaster_reports WHERE role != 'AFAD' ORDER BY lastSeenTimestamp DESC")
     suspend fun getAllReports(): List<DisasterReport>
 
     @Update
     suspend fun updateReport(report: DisasterReport)
+
+    @Query("UPDATE disaster_reports SET isConnected = 0")
+    suspend fun clearAllConnections()
 
     // reports tablosu eski sürümden kaldıysa burayı koruyoruz
     @Query("SELECT * FROM disaster_reports WHERE isUploaded = 0")

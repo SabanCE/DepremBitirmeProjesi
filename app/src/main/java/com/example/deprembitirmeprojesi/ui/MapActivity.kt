@@ -106,8 +106,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
             }
 
             override fun shouldRenderAsCluster(cluster: com.google.maps.android.clustering.Cluster<ReportClusterItem>): Boolean {
-                // Zoom seviyesi 15'ten büyükse artık gruplama yapma, pinleri tek tek göster
-                return if (currentZoom > 15f) false else cluster.size > 1
+                // EĞER CİHAZ SAYISI AZSA (MESELA 2-3 TANE) GRUPLAMA YAPMA, HEPSİNİ TEK TEK GÖSTER
+                // Sadece zoom seviyesi çok düşükse (tüm Türkiye görünürken) grupla
+                return if (currentZoom > 12f) false else cluster.size > 4
             }
         }
 
@@ -120,19 +121,22 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun loadData() {
         lifecycleScope.launch {
-            allReports = database.reportDao().getAllReports()
-            applyFilter()
+            // Flow kullanarak veritabanındaki her değişikliği canlı dinle
+            database.reportDao().getAllReportsFlow().collect { reports ->
+                // AFAD Personelini haritada göstermiyoruz
+                allReports = reports.filter { it.role != "AFAD" }
+                applyFilter()
+            }
         }
     }
 
     private fun applyFilter() {
         if (!::googleMap.isInitialized || !::clusterManager.isInitialized) return
 
-        val connectedIds = intent.getStringArrayListExtra("CONNECTED_IDS") ?: arrayListOf<String>()
         clusterManager.clearItems()
         
         val filtered = allReports.filter { report ->
-            val isConnected = connectedIds.contains(report.senderId)
+            val isConnected = report.isConnected // ARTIK DOĞRUDAN OBJEDEN ALIYORUZ
             val riskScore = RiskCalculator.calculateRiskScore(report)
             val msg = report.rawMessage.uppercase()
 
@@ -149,7 +153,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
         findViewById<TextView>(R.id.txtAreaCount).text = "🎯 Alan Taraması: ${filtered.size} Kişi"
 
         // Alt taraftaki Öncelikli Müdahale Listesini Güncelle
-        updatePriorityList(filtered, connectedIds)
+        updatePriorityList(filtered)
 
         var focusedOnFirst = false
         val hasSpecificTarget = intent.hasExtra("LAT")
@@ -158,17 +162,25 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
         for (report in filtered) {
             val position = parseLocation(report.lastLocation.ifEmpty { report.rawMessage })
             if (position != null) {
-                val isConnected = connectedIds.contains(report.senderId)
+                val isConnected = report.isConnected
                 val riskScore = RiskCalculator.calculateRiskScore(report)
                 val riskLevel = RiskCalculator.getRiskLevel(riskScore)
+
+                val statusLabel = when(report.status) {
+                    "CLAIMED" -> "🚑 EKİP YOLDA"
+                    "RESCUING" -> "👷 MÜDAHALE"
+                    "RESCUED" -> "✅ KURTARILDI"
+                    else -> "⏳ YARDIM BEKLİYOR"
+                }
 
                 val item = ReportClusterItem(
                     report,
                     position,
-                    if (report.userProfile.isNotEmpty()) report.userProfile else "Bilinmeyen",
+                    "$statusLabel | ${if (report.userProfile.isNotEmpty()) report.userProfile else "Bilinmeyen"}",
                     "Risk: %$riskScore ($riskLevel) | Pil: ${report.batteryLevel}",
                     riskScore,
-                    isConnected
+                    isConnected,
+                    report.status
                 )
                 clusterManager.addItem(item)
 
@@ -192,7 +204,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
         clusterManager.cluster()
     }
 
-    private fun updatePriorityList(reports: List<DisasterReport>, connectedIds: List<String>) {
+    private fun updatePriorityList(reports: List<DisasterReport>) {
         val rvPriority = findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.rvPriority)
         val adapter = PriorityAdapter { report ->
             // Listedeki birine tıklandığında haritada ona odaklan (Maksimum yakınlık: 19f)

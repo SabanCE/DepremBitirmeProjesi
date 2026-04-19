@@ -10,7 +10,6 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,23 +20,24 @@ import androidx.lifecycle.lifecycleScope
 import com.example.deprembitirmeprojesi.data.AppDatabase
 import com.example.deprembitirmeprojesi.data.DisasterReport
 import com.example.deprembitirmeprojesi.databinding.ActivityEmergencyBinding
+import com.example.deprembitirmeprojesi.mesh.MeshNetworkManager
 import com.example.deprembitirmeprojesi.nearby.NearbyManager
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
-class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
+class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener, MeshNetworkManager.MeshMessageListener {
 
     private lateinit var binding: ActivityEmergencyBinding
     private lateinit var nearbyManager: NearbyManager
+    private lateinit var meshManager: MeshNetworkManager
+    
     private lateinit var adapter: ArrayAdapter<String>
     private val logMessages = mutableListOf<String>()
 
     private val connectedEndpoints = mutableMapOf<String, String>() // endpointId -> deviceName
     private val endpointToStableId = mutableMapOf<String, String>() // endpointId -> stableUserId (UID)
-    private val seenMessages = mutableSetOf<String>()
 
     private lateinit var auth: FirebaseAuth
     private val database by lazy { AppDatabase.getDatabase(this) }
@@ -46,43 +46,6 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         private const val REQUEST_CODE_PERMISSIONS = 1001
         private const val TAG = "AFAD"
     }
-
-    // ------------------ MESH MODEL ------------------
-
-    data class MeshMessage(
-        val id: String,
-        val from: String,
-        val type: String,
-        val payload: String,
-        val ttl: Int
-    )
-
-    private fun MeshMessage.toJson(): String {
-        return JSONObject().apply {
-            put("id", id)
-            put("from", from)
-            put("type", type)
-            put("payload", payload)
-            put("ttl", ttl)
-        }.toString()
-    }
-
-    private fun parseMessage(json: String): MeshMessage? {
-        return try {
-            val obj = JSONObject(json)
-            MeshMessage(
-                id = obj.getString("id"),
-                from = obj.getString("from"),
-                type = obj.getString("type"),
-                payload = obj.getString("payload"),
-                ttl = obj.getInt("ttl")
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    // ------------------ BLUETOOTH ------------------
 
     private val requestBluetooth = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -95,8 +58,6 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         }
     }
 
-    // ------------------ LIFECYCLE ------------------
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityEmergencyBinding.inflate(layoutInflater)
@@ -108,15 +69,18 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         binding.listViewMessages.adapter = adapter
 
         nearbyManager = NearbyManager(this, this)
+        // MeshNetworkManager'ı başlatıyoruz
+        meshManager = MeshNetworkManager.getInstance(this, nearbyManager)
+        meshManager.setMessageListener(this)
+        
+        // BAŞLANGIÇ TEMİZLİĞİ: Uygulama açıldığında her şey "KOPTU" başlasın
+        meshManager.stopAll()
 
         setupClickListeners()
         showInitialUI()
     }
 
-    // ------------------ UI ------------------
-
     private fun setupClickListeners() {
-
         binding.btnStartDiscovery.setOnClickListener {
             checkPermissionsAndStart { startMesh() }
         }
@@ -131,7 +95,6 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
 
         binding.btnOpenMap.setOnClickListener {
             val intent = Intent(this, MapActivity::class.java)
-            // Sadece şu an bağlı olan cihazların gerçek UID'lerini gönder
             intent.putExtra("CONNECTED_IDS", ArrayList(endpointToStableId.values.distinct()))
             startActivity(intent)
         }
@@ -147,7 +110,6 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
                 val intent = Intent(this, MapActivity::class.java)
                 intent.putExtra("LAT", coords.first)
                 intent.putExtra("LNG", coords.second)
-                // Sadece şu an bağlı olan cihazların gerçek UID'lerini gönder
                 intent.putExtra("CONNECTED_IDS", ArrayList(endpointToStableId.values.distinct()))
                 startActivity(intent)
             }
@@ -156,7 +118,6 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
 
     private fun parseCoords(text: String): Pair<Double, Double>? {
         return try {
-            // Regex ile sayısal koordinatları ara (Örn: 39.123, 32.456)
             val regex = Regex("(-?\\d+\\.\\d+)\\s*,\\s*(-?\\d+\\.\\d+)")
             val match = regex.find(text)
             if (match != null) {
@@ -164,169 +125,70 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
                 val lng = match.groupValues[2].toDouble()
                 Pair(lat, lng)
             } else null
-        } catch (e: Exception) {
-            null
-        }
+        } catch (e: Exception) { null }
     }
 
     private fun startMesh() {
-        nearbyManager.startHybridMode("AFAD_PERSONEL")
+        val myId = auth.currentUser?.uid ?: "AFAD_${UUID.randomUUID().toString().take(4)}"
+        nearbyManager.startHybridMode("AFAD_PERSONEL", myId)
         showMessagingUI()
         addLog("🚨 AFAD mesh başlatıldı")
     }
 
-    // ------------------ SEND ------------------
-
     private fun sendAfadMessage(message: String) {
-
         if (message.isBlank()) return
-
-        val meshMsg = MeshMessage(
-            id = UUID.randomUUID().toString(),
-            from = "AFAD",
-            type = "AFAD",
-            payload = message,
-            ttl = 6
+        
+        // Yeni Mesh Sistemi üzerinden gönder (Kritik!)
+        val report = DisasterReport(
+            senderId = "AFAD_${auth.uid}",
+            rawMessage = message,
+            role = "AFAD",
+            status = "INFO",
+            lastSeenTimestamp = System.currentTimeMillis()
         )
-
-        seenMessages.add(meshMsg.id)
-        nearbyManager.broadcastData(meshMsg.toJson())
+        meshManager.updateAndBroadcastStatus(report)
 
         addLog("📤 AFAD: $message")
         binding.editMessage.text.clear()
     }
 
-    // ------------------ RECEIVE ------------------
-
     override fun onDataReceived(endpointId: String, message: String) {
-
-        val meshMsg = parseMessage(message) ?: return
-
-        // LOOP ENGELLE
-        if (seenMessages.contains(meshMsg.id)) return
-        seenMessages.add(meshMsg.id)
-
-        when (meshMsg.type) {
-
-            "EMERGENCY" -> {
-                addLog("🆘 ${meshMsg.payload}")
-                endpointToStableId[endpointId] = meshMsg.from
-                saveReport(meshMsg.from, meshMsg.payload, isInfo = false)
-                
-                val coords = parseCoords(meshMsg.payload)
-                if (coords != null) {
-                    addLog("📍 Konum Tespit Edildi! Haritayı açmak için listedeki mesaja tıklayın.")
-                }
-
-                if (meshMsg.ttl > 0) {
-                    val forwarded = meshMsg.copy(ttl = meshMsg.ttl - 1)
-                    nearbyManager.broadcastData(forwarded.toJson())
-                }
-            }
-
-            "INFO" -> {
-                addLog("📋 Profil Bilgisi Alındı: $endpointId")
-                endpointToStableId[endpointId] = meshMsg.from
-                saveReport(meshMsg.from, meshMsg.payload, isInfo = true)
-            }
-
-            "AFAD" -> {
-                addLog("📡 AFAD MESAJI YAYILIYOR")
-
-                if (meshMsg.ttl > 0) {
-                    val forwarded = meshMsg.copy(ttl = meshMsg.ttl - 1)
-                    nearbyManager.broadcastData(forwarded.toJson())
-                }
-            }
-        }
+        // Tüm veri işleme işini MeshManager'a devret
+        meshManager.onDataReceived(endpointId, message)
     }
 
-    // ------------------ DB ------------------
-
-    private fun saveReport(senderId: String, message: String, isInfo: Boolean = false) {
-        lifecycleScope.launch {
-            val existing = database.reportDao().getReportBySender(senderId)
-            val report = if (existing != null) {
-                if (isInfo) {
-                    // INFO mesajıysa tüm profil bilgilerini güncelle (Emojileri temizleyerek)
-                    existing.apply {
-                        userProfile = extractValue(message, "👤").replace("👤", "").trim()
-                        batteryLevel = extractValue(message, "🔋").replace("🔋", "").trim()
-                        lastLocation = extractValue(message, "📍").replace("📍", "").trim()
-                        bloodType = extractValue(message, "🩸 Kan:").replace("🩸 Kan:", "").trim()
-                        chronicIllness = extractValue(message, "🏥 Hastalık:").replace("🏥 Hastalık:", "").trim()
-                        birthDate = extractValue(message, "📅 Doğum:").replace("📅 Doğum:", "").trim()
-                        apartmentInfo = extractValue(message, "🏢 Bina:").replace("🏢 Bina:", "").trim()
-                        floorInfo = extractValue(message, "🔢 Kat:").replace("🔢 Kat:", "").trim()
-                        regularMedication = extractValue(message, "💊 İlaç:").replace("💊 İlaç:", "").trim()
-                        
-                        lastSeenTimestamp = System.currentTimeMillis()
-                        isConnected = true
-                    }
-                } else {
-                    existing.apply {
-                        rawMessage = message
-                        lastSeenTimestamp = System.currentTimeMillis()
-                        isConnected = true
-                    }
-                }
-            } else {
-                DisasterReport(
-                    senderId = senderId,
-                    rawMessage = if (isInfo) "" else message,
-                    userProfile = if (isInfo) extractValue(message, "👤").replace("👤", "").trim() else "",
-                    batteryLevel = if (isInfo) extractValue(message, "🔋").replace("🔋", "").trim() else "",
-                    lastLocation = if (isInfo) extractValue(message, "📍").replace("📍", "").trim() else "",
-                    bloodType = if (isInfo) extractValue(message, "🩸 Kan:").replace("🩸 Kan:", "").trim() else "",
-                    chronicIllness = if (isInfo) extractValue(message, "🏥 Hastalık:").replace("🏥 Hastalık:", "").trim() else "",
-                    birthDate = if (isInfo) extractValue(message, "📅 Doğum:").replace("📅 Doğum:", "").trim() else "",
-                    apartmentInfo = if (isInfo) extractValue(message, "🏢 Bina:").replace("🏢 Bina:", "").trim() else "",
-                    floorInfo = if (isInfo) extractValue(message, "🔢 Kat:").replace("🔢 Kat:", "").trim() else "",
-                    regularMedication = if (isInfo) extractValue(message, "💊 İlaç:").replace("💊 İlaç:", "").trim() else "",
-                    lastSeenTimestamp = System.currentTimeMillis(),
-                    isConnected = true
-                )
-            }
-            database.reportDao().upsertReport(report)
-            addLog("💾 Kayıt Güncellendi: $senderId")
-        }
+    override fun onMessageReceived(userName: String, message: String) {
+        addLog("🆘 SOS ($userName): $message")
     }
 
-    private fun extractValue(payload: String, key: String) = 
-        payload.lines().find { it.contains(key) } ?: ""
-
-    private fun extractProfile(payload: String) = extractValue(payload, "👤")
-    private fun extractBattery(payload: String) = extractValue(payload, "🔋")
-    private fun extractLocation(payload: String) = extractValue(payload, "📍")
-
-    // ------------------ CONNECTION ------------------
+    private fun updateTitle() {
+        runOnUiThread {
+            val count = connectedEndpoints.size
+            binding.titleTextView.text = if (count == 0) "SİNYAL ARANIYOR..." else "SİNYAL ARANIYOR... (BAĞLI: $count)"
+        }
+    }
 
     override fun onConnectionEstablished(endpointId: String, deviceName: String) {
-        connectedEndpoints[endpointId] = deviceName
-        addLog("✅ Bağlandı: $deviceName")
+        // İsim ayrıştırma: "ID|NAME" formatından ismi al
+        val displayName = if (deviceName.contains("|")) deviceName.split("|")[1] else deviceName
+        
+        connectedEndpoints[endpointId] = displayName
+        addLog("✅ Bağlandı: $displayName")
+        updateTitle()
+        
+        meshManager.onConnectionEstablished(endpointId, deviceName)
     }
 
     override fun onConnectionLost(endpointId: String) {
         val name = connectedEndpoints.remove(endpointId)
-        val stableId = endpointToStableId.remove(endpointId)
-        addLog("⚠️ Koptu: $name")
-
-        // Bağlantı koptuğunda durumu DB'de güncelle
-        stableId?.let { uid ->
-            lifecycleScope.launch {
-                database.reportDao().getReportBySender(uid)?.let {
-                    it.isConnected = false
-                    it.lastSeenTimestamp = System.currentTimeMillis()
-                    database.reportDao().upsertReport(it)
-                }
-            }
+        if (name != null) {
+            addLog("⚠️ Koptu: $name")
         }
+        
+        // KRİTİK: MeshManager'a haber ver ki veritabanını "KOPTU" yapsın
+        meshManager.onConnectionLost(endpointId)
 
-        runOnUiThread {
-            binding.titleTextView.text =
-                if (connectedEndpoints.isEmpty()) "SİNYAL ARANIYOR..."
-                else "BAĞLI: ${connectedEndpoints.size}"
-        }
+        updateTitle()
     }
 
     override fun onDeviceFound(endpointId: String, deviceName: String) {
@@ -338,25 +200,16 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
     }
 
     override fun onLogMessage(message: String) {
-        // Emulator Wifi hatalarını (8029) görmezden gel
-        if (isEmulator() && message.contains("8029") && message.contains("NEARBY_WIFI_DEVICES")) return
+        if (isEmulator() && message.contains("8029")) return
         addLog("Nearby: $message")
     }
 
-    // ------------------ PERMISSIONS ------------------
-
     private fun checkPermissionsAndStart(action: () -> Unit) {
-
         val missingPermissions = getRequiredPermissions().filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-
         if (missingPermissions.isNotEmpty()) {
-            ActivityCompat.requestPermissions(
-                this,
-                missingPermissions.toTypedArray(),
-                REQUEST_CODE_PERMISSIONS
-            )
+            ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), REQUEST_CODE_PERMISSIONS)
         } else if (!isLocationEnabled()) {
             startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
         } else if (!isBluetoothEnabled()) {
@@ -368,19 +221,14 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
 
     private fun getRequiredPermissions(): List<String> {
         val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Emulator'da NEARBY_WIFI_DEVICES iznini isteme (çünkü yok)
-            if (!isEmulator()) {
-                permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !isEmulator()) {
+            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
-
         return permissions
     }
 
@@ -393,8 +241,6 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         val bm = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         return bm.adapter?.isEnabled ?: false
     }
-
-    // ------------------ UI ------------------
 
     private fun showInitialUI() {
         binding.initialButtonsLayout.visibility = View.VISIBLE
@@ -419,10 +265,7 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
 
     private fun logout() {
         auth.signOut()
-        startActivity(
-            Intent(this, LoginActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        )
+        startActivity(Intent(this, LoginActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         finish()
     }
 
@@ -434,6 +277,5 @@ class EmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
         }
     }
 
-    private fun isEmulator(): Boolean =
-        Build.PRODUCT.contains("sdk") || Build.MODEL.contains("Emulator")
+    private fun isEmulator(): Boolean = Build.PRODUCT.contains("sdk") || Build.MODEL.contains("Emulator")
 }

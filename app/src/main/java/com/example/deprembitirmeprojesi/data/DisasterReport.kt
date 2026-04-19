@@ -14,7 +14,14 @@ data class DisasterReport(
     var lastSeenTimestamp: Long,
     var isUploaded: Boolean = false,
     
-    // Yeni Eklenen Detaylı Bilgiler
+    // Role-Based Mesh Alanları
+    var role: String = "VICTIM", // VICTIM, AFAD, RELAY
+    var status: String = "PENDING", // PENDING, CLAIMED, RESCUING, RESCUED
+    var assignedToAfadId: String? = null,
+    var priorityLevel: Int = 0, // 0-100 (Risk Score entegre edilecek)
+    var version: Long = 0, // Her güncellemede artacak (Vector Clock basitleştirmesi)
+
+    // Detaylı Bilgiler
     var bloodType: String = "",
     var chronicIllness: String = "",
     var birthDate: String = "",

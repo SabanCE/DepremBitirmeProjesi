@@ -16,14 +16,18 @@ import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.example.deprembitirmeprojesi.data.AppDatabase
+import com.example.deprembitirmeprojesi.data.DisasterReport
 import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityUserEmergencyBinding
+import com.example.deprembitirmeprojesi.mesh.MeshNetworkManager
 import com.example.deprembitirmeprojesi.nearby.NearbyManager
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import org.json.JSONObject
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -31,15 +35,18 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
 
     private lateinit var binding: ActivityUserEmergencyBinding
     private lateinit var nearbyManager: NearbyManager
+    private lateinit var meshManager: MeshNetworkManager
+    
     private lateinit var adapter: ArrayAdapter<String>
     private val logMessages = mutableListOf<String>()
 
-    private val seenMessages = mutableSetOf<String>()
-    private var currentFullPayload: String = ""
+    private var currentProfile: UserProfile? = null
+    private var lastLocationStr: String = ""
 
     private val fusedLocationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private lateinit var auth: FirebaseAuth
     private lateinit var firestore: FirebaseFirestore
+    private val database by lazy { AppDatabase.getDatabase(this) }
 
     private var toneGenerator: ToneGenerator? = null
 
@@ -47,43 +54,6 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         private const val REQUEST_CODE_PERMISSIONS = 101
         private const val TAG = "UserEmergencyActivity"
     }
-
-    // ------------------ MESH MODEL ------------------
-
-    data class MeshMessage(
-        val id: String,
-        val from: String,
-        val type: String,
-        val payload: String,
-        val ttl: Int
-    )
-
-    private fun MeshMessage.toJson(): String {
-        return JSONObject().apply {
-            put("id", id)
-            put("from", from)
-            put("type", type)
-            put("payload", payload)
-            put("ttl", ttl)
-        }.toString()
-    }
-
-    private fun parseMessage(json: String): MeshMessage? {
-        return try {
-            val obj = JSONObject(json)
-            MeshMessage(
-                id = obj.getString("id"),
-                from = obj.getString("from"),
-                type = obj.getString("type"),
-                payload = obj.getString("payload"),
-                ttl = obj.getInt("ttl")
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    // ------------------ LIFECYCLE ------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,6 +67,11 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         binding.listViewMessages.adapter = adapter
 
         nearbyManager = NearbyManager(this, this)
+        // MeshNetworkManager'ı başlatıyoruz
+        meshManager = MeshNetworkManager.getInstance(this, nearbyManager)
+        
+        // BAŞLANGIÇ TEMİZLİĞİ: Herkes "KOPTU" başlasın
+        meshManager.stopAll()
 
         setupClickListeners()
         showInitialUI()
@@ -134,95 +109,114 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         binding.btnAlarm.setOnClickListener { playEmergencyAlarm() }
     }
 
-    // ------------------ STATUS UI UPDATE (THREAD SAFE) ------------------
-
     private fun updateStatusLog(msg: String) {
-        Handler(Looper.getMainLooper()).post {
+        runOnUiThread {
             binding.connectionStatusLog.text = "Durum: $msg"
         }
     }
 
     private fun updateMainStatus(text: String, colorRes: Int) {
-        Handler(Looper.getMainLooper()).post {
+        runOnUiThread {
             binding.statusTextView.text = text
             binding.statusTextView.setTextColor(ContextCompat.getColor(this, colorRes))
-            Log.d(TAG, "UI Updated: $text")
         }
     }
-
-    // ------------------ MESH SEND ------------------
 
     private fun sendEmergencyMessage(message: String) {
-        val meshMsg = MeshMessage(
-            id = UUID.randomUUID().toString(),
-            from = auth.currentUser?.uid ?: "anon",
-            type = "EMERGENCY",
-            payload = message,
-            ttl = 5
-        )
+        val userId = auth.currentUser?.uid ?: "anon_${UUID.randomUUID().toString().take(4)}"
+        
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // 1. Önce mevcut raporu çek (Versiyonu kaybetmemek için)
+            var report = database.reportDao().getReportBySender(userId)
+            
+            val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            val batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
 
-        seenMessages.add(meshMsg.id)
-        nearbyManager.broadcastData(meshMsg.toJson())
+            if (report == null) {
+                report = DisasterReport(
+                    senderId = userId,
+                    rawMessage = message,
+                    userProfile = currentProfile?.fullName ?: "Bilinmeyen Kullanıcı",
+                    batteryLevel = "%$batteryLevel",
+                    lastLocation = lastLocationStr,
+                    bloodType = currentProfile?.bloodType ?: "",
+                    chronicIllness = currentProfile?.chronicIllness ?: "",
+                    regularMedication = currentProfile?.regularMedication ?: "",
+                    birthDate = currentProfile?.birthDate ?: "",
+                    apartmentInfo = currentProfile?.apartmentInfo ?: "",
+                    floorInfo = currentProfile?.floorInfo ?: "",
+                    role = "VICTIM",
+                    status = "PENDING",
+                    lastSeenTimestamp = System.currentTimeMillis(),
+                    isConnected = true,
+                    version = 1
+                )
+            } else {
+                // 2. Mevcut raporu güncelle
+                report.rawMessage = message
+                report.lastLocation = lastLocationStr
+                report.batteryLevel = "%$batteryLevel"
+                report.lastSeenTimestamp = System.currentTimeMillis()
+                report.isConnected = true
+                // Versiyonu burada artırıyoruz ki ağdaki diğer cihazlar güncellemeyi kabul etsin
+                report.version++
+            }
 
-        addLog("📤 GÖNDERİLDİ: $message")
+            // 3. Mesh Sistemi üzerinden gönder
+            meshManager.updateAndBroadcastStatus(report)
+            
+            runOnUiThread {
+                addLog("📤 GÖNDERİLDİ: $message")
+            }
+        }
     }
-
-    // ------------------ RECEIVE ------------------
 
     override fun onDataReceived(endpointId: String, message: String) {
-        val meshMsg = parseMessage(message) ?: return
-
-        if (seenMessages.contains(meshMsg.id)) return
-        seenMessages.add(meshMsg.id)
-
-        when (meshMsg.type) {
-            "AFAD" -> {
-                addLog("🚨 AFAD: ${meshMsg.payload}")
-                Handler(Looper.getMainLooper()).post {
-                    binding.afadMessageCard.visibility = View.VISIBLE
-                    binding.lastAfadMessage.text = meshMsg.payload
+        // Mesh verisini işle
+        meshManager.onDataReceived(endpointId, message)
+        
+        // AFAD'dan gelen özel durum güncellemelerini takip et
+        lifecycleScope.launch {
+            val myId = auth.currentUser?.uid ?: return@launch
+            val myReport = database.reportDao().getReportBySender(myId)
+            
+            if (myReport != null) {
+                runOnUiThread {
+                    if (myReport.status != "PENDING") {
+                        binding.afadMessageCard.visibility = View.VISIBLE
+                        val statusLabel = when(myReport.status) {
+                            "CLAIMED" -> "🚑 Ekip Yolda!"
+                            "RESCUING" -> "👷 Müdahale Ediliyor!"
+                            "RESCUED" -> "✅ Kurtarıldınız!"
+                            else -> "⏳ Yardım Bekleniyor"
+                        }
+                        binding.lastAfadMessage.text = "DURUM GÜNCELLEMESİ: $statusLabel"
+                    }
                 }
-            }
-            "EMERGENCY" -> {
-                addLog("🆘 ${meshMsg.payload}")
-                if (meshMsg.ttl > 0) {
-                    val forwarded = meshMsg.copy(ttl = meshMsg.ttl - 1)
-                    nearbyManager.broadcastData(forwarded.toJson())
-                }
-            }
-            "INFO" -> {
-                addLog("📋 BİLGİ ALINDI")
             }
         }
     }
 
-    // ------------------ CONNECTION ------------------
-
     override fun onConnectionEstablished(endpointId: String, deviceName: String) {
+        // İsim ayrıştırma: "ID|NAME" formatından ismi al
+        val displayName = if (deviceName.contains("|")) deviceName.split("|")[1] else deviceName
+        
         updateMainStatus("✅ BAĞLANTI KURULDU", android.R.color.holo_green_light)
-        updateStatusLog("$deviceName cihazına bağlandınız.")
-        addLog("BAĞLANDI: $deviceName")
-
-        if (currentFullPayload.isNotBlank()) {
-            val meshMsg = MeshMessage(
-                id = UUID.randomUUID().toString(),
-                from = auth.currentUser?.uid ?: "anon",
-                type = "INFO",
-                payload = currentFullPayload,
-                ttl = 3
-            )
-
-            Handler(Looper.getMainLooper()).postDelayed({
-                nearbyManager.sendData(endpointId, meshMsg.toJson())
-                addLog("📤 Profil bilgileri gönderildi.")
-            }, 1000)
-        }
+        updateStatusLog("$displayName cihazına bağlandınız.")
+        addLog("BAĞLANDI: $displayName")
+        meshManager.onConnectionEstablished(endpointId, deviceName)
+        
+        // Bağlantı kurulunca güncel durumunu bir kez fırlat
+        sendEmergencyMessage("SİSTEME BAĞLANDI")
     }
 
     override fun onConnectionLost(endpointId: String) {
         updateMainStatus("⚠️ BAĞLANTI KOPTU", android.R.color.holo_orange_light)
         updateStatusLog("Bağlantı kesildi, tekrar aranıyor...")
         addLog("KOPTU: $endpointId")
+        
+        // KRİTİK: MeshManager'a haber ver ki "KOPTU" işaretlesin
+        meshManager.onConnectionLost(endpointId)
     }
 
     override fun onConnectionFailed(endpointId: String) {
@@ -236,51 +230,11 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
     }
 
     override fun onLogMessage(message: String) {
-        // Log mesajlarını tarayarak UI güncelleme
-        if (message.contains("Aktif") || message.contains("Aranıyor") || message.contains("Yayın")) {
-            if (binding.statusTextView.text != "✅ BAĞLANTI KURULDU") {
-                updateMainStatus("🔍 CİHAZ ARANIYOR", android.R.color.holo_blue_light)
-                updateStatusLog("Sinyal yayılıyor ve çevredeki cihazlar taranıyor...")
-            }
+        if (binding.statusTextView.text != "✅ BAĞLANTI KURULDU") {
+            updateMainStatus("🔍 CİHAZ ARANIYOR", android.R.color.holo_blue_light)
         }
         addLog("Nearby: $message")
     }
-
-    // ------------------ PAYLOAD ------------------
-
-    @SuppressLint("MissingPermission")
-    private fun buildPayload(userProfile: UserProfile?, callback: (String) -> Unit) {
-        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-
-        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            .addOnSuccessListener { location: Location? ->
-                val locationStr = if (location != null) "${location.latitude}, ${location.longitude}" else "Yok"
-                val name = userProfile?.fullName ?: "Bilinmeyen"
-                
-                // Detaylı Bilgileri Payload'a ekle
-                val payload = StringBuilder().apply {
-                    append("👤 $name\n")
-                    append("📍 $locationStr\n")
-                    append("🔋 %$batteryLevel\n")
-                    userProfile?.let {
-                        if (it.bloodType.isNotEmpty()) append("🩸 Kan: ${it.bloodType}\n")
-                        if (it.chronicIllness.isNotEmpty()) append("🏥 Hastalık: ${it.chronicIllness}\n")
-                        if (it.birthDate.isNotEmpty()) append("📅 Doğum: ${it.birthDate}\n")
-                        if (it.apartmentInfo.isNotEmpty()) append("🏢 Bina: ${it.apartmentInfo}\n")
-                        if (it.floorInfo.isNotEmpty()) append("🔢 Kat: ${it.floorInfo}\n")
-                        if (it.regularMedication.isNotEmpty()) append("💊 İlaç: ${it.regularMedication}")
-                    }
-                }.toString()
-
-                callback(payload)
-            }
-            .addOnFailureListener {
-                callback("Bilinmeyen Kullanıcı")
-            }
-    }
-
-    // ------------------ START ------------------
 
     private fun startRelayMode() {
         if (!hasAllPermissions()) {
@@ -288,36 +242,46 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
             return
         }
         updateMainStatus("🔍 HAZIRLANIYOR...", android.R.color.holo_blue_light)
-        fetchProfileAndPreparePayload()
-    }
-
-    private fun fetchProfileAndPreparePayload() {
+        
+        // Profili ve konumu alıp başlat
         val userId = auth.currentUser?.uid
-        if (userId == null) {
-            buildPayload(null) { startHybridWithPayload(it) }
-            return
+        if (userId != null) {
+            firestore.collection("users").document(userId).get()
+                .addOnSuccessListener {
+                    currentProfile = it.toObject(UserProfile::class.java)
+                    updateLocationAndStart()
+                }
+                .addOnFailureListener { updateLocationAndStart() }
+        } else {
+            updateLocationAndStart()
         }
-        firestore.collection("users").document(userId).get()
-            .addOnSuccessListener {
-                val profile = it.toObject(UserProfile::class.java)
-                buildPayload(profile) { startHybridWithPayload(it) }
-            }
-            .addOnFailureListener {
-                buildPayload(null) { startHybridWithPayload(it) }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun updateLocationAndStart() {
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { location: Location? ->
+                // KONUM FİLTRESİ: Eğer koordinatlar (0.0, 0.0) veya emülatörün varsayılanı (37.422...) ise gerçek konum gelene kadar boş bırak
+                lastLocationStr = if (location != null && !isDefaultEmulatorLocation(location)) {
+                    "${location.latitude}, ${location.longitude}"
+                } else {
+                    "" 
+                }
+                
+                val userId = auth.currentUser?.uid ?: "anon_${UUID.randomUUID().toString().take(4)}"
+                val displayName = currentProfile?.fullName ?: "Depremzede"
+                nearbyManager.startHybridMode(displayName, userId)
+                showMessagingUI()
             }
     }
 
-    private fun startHybridWithPayload(payload: String) {
-        currentFullPayload = payload
-        nearbyManager.startHybridMode("USER_${UUID.randomUUID().toString().take(4)}")
-        addLog("📡 Sinyal başlatıldı.")
-        showMessagingUI()
+    private fun isDefaultEmulatorLocation(loc: Location): Boolean {
+        // San Francisco koordinatları (Emülatör varsayılanı)
+        return loc.latitude > 37.42 && loc.latitude < 37.43 && loc.longitude < -122.08 && loc.longitude > -122.09
     }
-
-    // ------------------ UI ------------------
 
     private fun addLog(msg: String) {
-        Handler(Looper.getMainLooper()).post {
+        runOnUiThread {
             val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
             logMessages.add(0, "[$time] $msg")
             adapter.notifyDataSetChanged()
@@ -329,7 +293,6 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         binding.quickMessagesLayout.visibility = View.GONE
         binding.btnReset.visibility = View.GONE
         updateMainStatus("SİNYAL KAPALI", android.R.color.holo_red_light)
-        updateStatusLog("Beklemede")
     }
 
     private fun showMessagingUI() {

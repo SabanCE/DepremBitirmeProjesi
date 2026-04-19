@@ -28,10 +28,10 @@ class NearbyManager(private val context: Context, private val listener: NearbyLi
     private val serviceId = context.packageName
     private val strategy = Strategy.P2P_CLUSTER 
     
-    // ÇAKIŞMA ÖNLEME: Her cihaz için benzersiz bir ID oluştur (İki cihazın aynı anda istek atmasını önler)
-    private val localId = java.util.UUID.randomUUID().toString()
+    // ÇAKIŞMA ÖNLEME: Her cihaz için benzersiz bir ID oluştur
+    private val localId = java.util.UUID.randomUUID().toString().take(4)
     
-    private var currentNickName = Build.MODEL
+    private var currentNickName = Build.MODEL + "_" + localId
     private val activeEndpoints = mutableMapOf<String, String>()
     private val discoveredNames = mutableMapOf<String, String>()
     
@@ -45,11 +45,14 @@ class NearbyManager(private val context: Context, private val listener: NearbyLi
                              Build.MODEL.contains("Android SDK")
 
     /**
-     * Hibrit modu başlatır. İnternet kopsa dahi Bluetooth üzerinden iletişim devam eder.
+     * Hibrit modu başlatır. 
+     * @param nickName Kullanıcı adı
+     * @param userId Kullanıcının benzersiz ID'si (UUID)
      */
-    fun startHybridMode(nickName: String) {
-        currentNickName = nickName
-        listener.onLogMessage("🔄 Çevrimdışı Haberleşme Başlatılıyor (İnternet Gerekmez)...")
+    fun startHybridMode(nickName: String, userId: String) {
+        // Nickname içinde ID'yi gönderiyoruz: "ID|MODEL_ISMI"
+        currentNickName = "$userId|$nickName"
+        listener.onLogMessage("🔄 Çevrimdışı Haberleşme Başlatılıyor ($nickName)...")
         
         // Önceki tüm işlemleri durdur ve temizle (Hataları önlemek için kritik)
         stopAll()

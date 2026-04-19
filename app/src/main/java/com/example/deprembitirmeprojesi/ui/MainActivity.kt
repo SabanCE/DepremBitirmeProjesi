@@ -25,7 +25,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.example.deprembitirmeprojesi.R
+import com.example.deprembitirmeprojesi.data.AppDatabase
 import com.example.deprembitirmeprojesi.databinding.ActivityMainBinding
 import com.example.deprembitirmeprojesi.util.AccelerometerHelper
 import com.example.deprembitirmeprojesi.util.Constants
@@ -68,6 +71,12 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         setContentView(binding.root)
 
         auth = Firebase.auth
+
+        // AÇILIŞTA HAYALET BAĞLANTILARI TEMİZLE
+        lifecycleScope.launch {
+            com.example.deprembitirmeprojesi.data.AppDatabase.getDatabase(this@MainActivity)
+                .reportDao().clearAllConnections()
+        }
 
         setupUI()
         observeViewModel()

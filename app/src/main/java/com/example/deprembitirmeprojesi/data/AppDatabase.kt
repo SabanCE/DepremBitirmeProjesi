@@ -14,7 +14,7 @@ import androidx.room.RoomDatabase
  * entities = Veritabanında tablo olarak kullanılacak veri sınıflarının listesi.
  * version = Veritabanı şemasının versiyon numarası. Şema değiştiğinde bu numara artırılmalıdır.
  */
-@Database(entities = [EarthquakeRecord::class, DisasterReport::class], version = 6) // VERSİYON GÜNCELLENDİ (YENİ ALANLAR EKLENDİ)
+@Database(entities = [EarthquakeRecord::class, DisasterReport::class], version = 7) // VERSİYON GÜNCELLENDİ (YENİ ALANLAR EKLENDİ)
 abstract class AppDatabase : RoomDatabase() {
 
     /**
