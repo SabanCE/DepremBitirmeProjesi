@@ -3,17 +3,24 @@ package com.example.deprembitirmeprojesi.ui
 import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.MediaPlayer
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.viewModels
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -21,6 +28,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.deprembitirmeprojesi.R
 import com.example.deprembitirmeprojesi.databinding.ActivityMainBinding
 import com.example.deprembitirmeprojesi.util.AccelerometerHelper
+import com.example.deprembitirmeprojesi.util.Constants
 import com.example.deprembitirmeprojesi.viewmodel.MainViewModel
 import com.example.deprembitirmeprojesi.viewmodel.UiState
 import com.github.mikephil.charting.components.Description
@@ -44,9 +52,14 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
 
     private val entries = mutableListOf<Entry>()
     private var timeOfIndex = 0f
+    
+    // Optimizasyon için son grafik güncelleme zamanı
+    private var lastChartUpdateTime = 0L
+    private val CHART_UPDATE_INTERVAL_MS = 100 // Grafiği her 100ms'de bir güncelle
 
     companion object {
-        private const val REQUEST_CODE_LOCATION = 100
+        private const val REQUEST_CODE_PERMISSIONS = 100
+        private const val REQUEST_CODE_BACKGROUND_LOCATION = 101
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,9 +71,60 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
 
         setupUI()
         observeViewModel()
-        requestLocationPermission()
+        checkPermissions()
+        checkBatteryOptimizations()
 
         accelerometerHelper = AccelerometerHelper(this, this)
+        
+        // Kritik Takip Modu başlangıç ayarı
+        val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
+        val isCriticalMode = sharedPref.getBoolean("CRITICAL_MODE", false)
+        binding.switchCriticalMode.isChecked = isCriticalMode
+        
+        if (isCriticalMode) {
+            startEarthquakeService()
+        }
+    }
+
+    private fun startEarthquakeService() {
+        if (!hasLocationPermission()) return
+        
+        val serviceIntent = Intent(this, com.example.deprembitirmeprojesi.service.EarthquakeService::class.java)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Log.d("MainActivity", "Deprem Takip Servisi Başlatıldı.")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Servis başlatılamadı: ${e.message}")
+        }
+    }
+
+    private fun stopEarthquakeService() {
+        val serviceIntent = Intent(this, com.example.deprembitirmeprojesi.service.EarthquakeService::class.java)
+        stopService(serviceIntent)
+        Log.d("MainActivity", "Deprem Takip Servisi Durduruldu.")
+    }
+
+    private fun checkBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                AlertDialog.Builder(this)
+                    .setTitle("Kesintisiz Takip")
+                    .setMessage("Deprem uyarılarını uygulama kapalıyken de alabilmek için lütfen pil kısıtlamasını 'Kısıtlama Yok' (Unrestricted) olarak ayarlayın.")
+                    .setPositiveButton("Ayarlara Git") { _, _ ->
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    }
+                    .setNegativeButton("Daha Sonra", null)
+                    .show()
+            }
+        }
     }
 
     private fun setupUI() {
@@ -68,7 +132,25 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         adapter = EarthquakeAdapter()
         binding.recyclerView.adapter = adapter
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
-        // BU KOD SADECE TEST İÇİNDİR !!
+        
+        // Kritik Mod Switch Mantığı
+        binding.switchCriticalMode.setOnCheckedChangeListener { _, isChecked ->
+            val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
+            with(sharedPref.edit()) {
+                putBoolean("CRITICAL_MODE", isChecked)
+                apply()
+            }
+            
+            if (isChecked) {
+                startEarthquakeService()
+                Toast.makeText(this, "Kritik Takip Modu Aktif (7/24 Koruma)", Toast.LENGTH_SHORT).show()
+            } else {
+                stopEarthquakeService()
+                Toast.makeText(this, "Standart Mod: Arka plan takibi durduruldu", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Simülasyon butonu (Test amaçlı)
         binding.btnSimulate.setOnClickListener {
             val intent = Intent(this, UserEmergencyActivity::class.java)
             startActivity(intent)
@@ -116,12 +198,15 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
                     binding.txtStatus.text = "Güvende"
                     binding.txtStatus.setTextColor(ContextCompat.getColor(this, R.color.safe_green))
                 }
-                is UiState.ShakeDetected -> {
-                    binding.txtStatus.text = "⚠️ Sarsıntı Algılandı!\nTeyit Bekleniyor..."
-                    binding.txtStatus.setTextColor(ContextCompat.getColor(this, R.color.warning_orange))
+                is UiState.Analysing -> {
+                    binding.txtStatus.text = "🔍 Sarsıntı Analiz Ediliyor...\nLütfen Bekleyin"
+                    binding.txtStatus.setTextColor(Color.BLUE)
+                }
+                is UiState.RiskDetected -> {
+                    handleRiskUI(state.score, state.level)
                 }
                 is UiState.Confirmed -> {
-                    binding.txtStatus.text = "🚨 DEPREM KESİNLEŞTİ! \nYakında ${state.nearbyDevices} cihaz daha sallanıyor!"
+                    binding.txtStatus.text = "🚨 DEPREM DOĞRULANDI!\nŞiddet: ${state.magnitude}\nÇevredeki Etkilenen Cihazlar: ${state.nearby}"
                     binding.txtStatus.setTextColor(Color.RED)
                     playAlarmSound()
                     playShakeAnimation()
@@ -129,42 +214,119 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
             }
         }
 
-        // Acil Durum Moduna geçiş emrini dinle
         viewModel.navigateToEmergencyMode.observe(this) { shouldNavigate ->
             if (shouldNavigate) {
                 val intent = Intent(this, UserEmergencyActivity::class.java)
                 startActivity(intent)
-                viewModel.onNavigationToEmergencyModeComplete() // Yönlendirme sonrası sinyali sıfırla
+                viewModel.onNavigationToEmergencyModeComplete()
             }
         }
     }
 
     override fun onShakeDetected(force: Float) {
+        // Debounce (Zaman barajı) ViewModel içinde zaten kontrol ediliyor.
         if (hasLocationPermission()) {
             viewModel.onEarthquakeDetected(force)
         } else {
-            requestLocationPermission()
+            checkPermissions()
             Toast.makeText(this, "Deprem verisi için konum izni gerekli!", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun hasLocationPermission(): Boolean {
-        return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    private fun handleRiskUI(score: Double, level: String) {
+        when (level) {
+            Constants.LEVEL_LOW -> {
+                binding.txtStatus.text = "🟡 Düşük Risk\nSarsıntı algılandı, dikkatli olun"
+                binding.txtStatus.setTextColor(ContextCompat.getColor(this, R.color.warning_orange))
+            }
+            Constants.LEVEL_MEDIUM -> {
+                binding.txtStatus.text = "🟠 Orta Risk\nBölgenizde deprem olabilir"
+                binding.txtStatus.setTextColor(Color.parseColor("#FFA500")) // Orange
+                playShakeAnimation()
+            }
+            Constants.LEVEL_HIGH -> {
+                binding.txtStatus.text = "🔴 YÜKSEK RİSK\nDEPREM! Güvenli alana geç"
+                binding.txtStatus.setTextColor(Color.RED)
+                playAlarmSound()
+                playShakeAnimation()
+            }
+        }
+        Log.d("MainActivity", "Risk Level UI Updated: $level (Score: $score)")
     }
 
-    private fun requestLocationPermission() {
-        if (!hasLocationPermission()) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_CODE_LOCATION)
+    private fun checkPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+
+        // Android 12+ (API 31) Bluetooth İzinleri
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        
+        val missingPermissions = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missingPermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), REQUEST_CODE_PERMISSIONS)
+        } else {
+            // İzinler tamamsa servisi başlat
+            startEarthquakeService()
+            checkBackgroundLocationPermission()
+        }
+    }
+
+    private fun checkBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                AlertDialog.Builder(this)
+                    .setTitle("Arka Plan Konum İzni Gerekli")
+                    .setMessage("Uygulama kapalıyken deprem sarsıntılarını konumunuzla birlikte bildirebilmek için konum iznini 'Her zaman izin ver' olarak ayarlamanız gerekmektedir.")
+                    .setPositiveButton("Ayarlara Git") { _, _ ->
+                        ActivityCompat.requestPermissions(
+                            this,
+                            arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                            REQUEST_CODE_BACKGROUND_LOCATION
+                        )
+                    }
+                    .setNegativeButton("İptal", null)
+                    .show()
+            }
         }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_CODE_LOCATION) {
-            if (!(grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
-                Toast.makeText(this, "Konum izni olmadan ana özellikler çalışamaz.", Toast.LENGTH_LONG).show()
+        when (requestCode) {
+            REQUEST_CODE_PERMISSIONS -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    // Normal konum izni verildi, servisi şimdi başlatabiliriz
+                    startEarthquakeService()
+                    checkBackgroundLocationPermission()
+                } else {
+                    Toast.makeText(this, "Temel izinler olmadan uygulama düzgün çalışamaz.", Toast.LENGTH_LONG).show()
+                }
+            }
+            REQUEST_CODE_BACKGROUND_LOCATION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this, "Arka plan konum izni onaylandı.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Deprem uyarılarını arka planda alabilmek için bu izin kritik!", Toast.LENGTH_LONG).show()
+                }
             }
         }
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun playShakeAnimation() {
@@ -184,10 +346,9 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         if (isAlarmPlaying) return
         try {
             mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)?.apply {
-                isLooping = false // Döngüyü kapat
+                isLooping = false
                 isAlarmPlaying = true
                 start()
-                // 4 saniye sonra alarmı durdur
                 Handler(Looper.getMainLooper()).postDelayed({
                     stopAlarmSound()
                 }, 4000)
@@ -219,9 +380,13 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
     }
 
     override fun onSensorChanged(x: Float, y: Float, z: Float) {
-        binding.txtValues.text = "X: ${String.format("%.1f", x)} Y: ${String.format("%.1f", y)} Z: ${String.format("%.1f", z)}"
-        val magnitude = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
-        addEntryToChart(magnitude)
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastChartUpdateTime > CHART_UPDATE_INTERVAL_MS) {
+            binding.txtValues.text = "X: ${String.format("%.1f", x)} Y: ${String.format("%.1f", y)} Z: ${String.format("%.1f", z)}"
+            val magnitude = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+            addEntryToChart(magnitude)
+            lastChartUpdateTime = currentTime
+        }
     }
 
     private fun setupChart() {

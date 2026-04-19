@@ -1,161 +1,198 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp"
-    tools:context=".UserEmergencyActivity">
+    android:background="#121212"
+    android:padding="16dp">
 
-    <TextView
-        android:id="@+id/titleTextView"
-        android:layout_width="wrap_content"
+    <!-- Üst Durum Alanı -->
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:text="YARDIM MODU"
-        android:textSize="24sp"
-        android:textStyle="bold" />
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingBottom="16dp">
 
-    <TextView
-        android:id="@+id/statusTextView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:layout_marginTop="8dp"
-        android:text="Yardım sinyali yaymak için butona basın."
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        <TextView
+            android:id="@+id/statusTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SİNYAL KAPALI"
+            android:textColor="#FF5252"
+            android:textSize="24sp"
+            android:textStyle="bold" />
 
+        <TextView
+            android:id="@+id/connectionStatusLog"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Durum: Beklemede"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+
+    <!-- Giriş Butonları (Sinyal Kapalıyken Görünür) -->
     <LinearLayout
         android:id="@+id/initialButtonsLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_marginTop="16dp">
+        android:layout_centerInParent="true"
+        android:orientation="vertical">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnStartAdvertising"
             android:layout_width="match_parent"
-            android:layout_height="80dp"
-            android:backgroundTint="#F44336"
-            android:text="Yardım Sinyali Yay" />
+            android:layout_height="220dp"
+            android:text="YARDIM SİNYALİNİ BAŞLAT\n(SEND SOS)"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            app:cornerRadius="24dp"
+            android:backgroundTint="#D32F2F"
+            app:rippleColor="#FFFFFF" />
     </LinearLayout>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Durum ve Alınan Mesajlar:"/>
-
-    <ListView
-        android:id="@+id/listViewMessages"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_weight="1"
-        android:background="#f0f0f0"/>
-
-    <GridLayout
+    <!-- Hızlı Durum Butonları (Sinyal Aktifken Görünür) -->
+    <ScrollView
         android:id="@+id/quickMessagesLayout"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:columnCount="2"
+        android:layout_height="match_parent"
+        android:layout_below="@id/header"
+        android:layout_above="@+id/bottomButtons"
         android:visibility="gone">
 
-        <Button
-            android:id="@+id/btnGood"
-            style="?android:attr/buttonBarStyle"
-            android:layout_width="0dp"
-            android:layout_height="80dp"
-            android:layout_columnWeight="1"
-            android:layout_margin="4dp"
-            android:backgroundTint="#4CAF50"
-            android:text="İyiyim" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
-        <Button
-            android:id="@+id/btnInjured"
-            style="?android:attr/buttonBarStyle"
-            android:layout_width="0dp"
-            android:layout_height="80dp"
-            android:layout_columnWeight="1"
-            android:layout_margin="4dp"
-            android:backgroundTint="#F44336"
-            android:text="Yaralıyım" />
+            <GridLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="2"
+                android:alignmentMode="alignMargins">
 
-        <Button
-            android:id="@+id/btnWater"
-            style="?android:attr/buttonBarStyle"
-            android:layout_width="0dp"
-            android:layout_height="80dp"
-            android:layout_columnWeight="1"
-            android:layout_margin="4dp"
-            android:backgroundTint="#FFC107"
-            android:text="Su Lazım" />
+                <Button android:id="@+id/btnGood" android:text="İYİYİM" android:layout_columnWeight="1" android:layout_height="100dp" android:layout_margin="8dp" android:textSize="18sp" android:backgroundTint="#2E7D32"/>
+                <Button android:id="@+id/btnInjured" android:text="YARALIYIM" android:layout_columnWeight="1" android:layout_height="100dp" android:layout_margin="8dp" android:textSize="18sp" android:backgroundTint="#F57C00"/>
+                <Button android:id="@+id/btnWater" android:text="SU LAZIM" android:layout_columnWeight="1" android:layout_height="100dp" android:layout_margin="8dp" android:textSize="18sp" android:backgroundTint="#1976D2"/>
+                <Button android:id="@+id/btnStuck" android:text="SIKIŞTIM" android:layout_columnWeight="1" android:layout_height="100dp" android:layout_margin="8dp" android:textSize="18sp" android:backgroundTint="#C62828"/>
+            </GridLayout>
 
-        <Button
-            android:id="@+id/btnStuck"
-            style="?android:attr/buttonBarStyle"
-            android:layout_width="0dp"
-            android:layout_height="80dp"
-            android:layout_columnWeight="1"
-            android:layout_margin="4dp"
-            android:backgroundTint="#F44336"
-            android:text="Sıkıştım" />
+            <Button
+                android:id="@+id/btnAlarm"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:layout_margin="8dp"
+                android:text="🔊 SESLİ ALARM ÇAL"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:backgroundTint="#AA00FF"/>
 
-        <Button
-            android:id="@+id/btnShowCustomMessage"
-            style="?android:attr/buttonBarStyle"
-            android:layout_width="0dp"
-            android:layout_height="80dp"
-            android:layout_column="0"
-            android:layout_columnSpan="2"
-            android:layout_gravity="fill_horizontal"
-            android:layout_margin="4dp"
-            android:text="Kendi Mesajını Yaz" />
+            <Button
+                android:id="@+id/btnShowCustomMessage"
+                android:layout_width="match_parent"
+                android:layout_height="80dp"
+                android:layout_margin="8dp"
+                android:text="ÖZEL MESAJ GÖNDER"
+                android:textSize="18sp"
+                android:backgroundTint="#616161"/>
+        </LinearLayout>
+    </ScrollView>
 
-    </GridLayout>
-
+    <!-- Özel Mesaj Paneli -->
     <LinearLayout
         android:id="@+id/customMessagePanel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
         android:orientation="vertical"
+        android:padding="16dp"
+        android:background="#212121"
         android:visibility="gone">
 
         <EditText
             android:id="@+id/editMessage"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Mesajınızı yazın" />
+            android:hint="Mesajınızı yazın..."
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888"
+            android:inputType="textLongMessage"
+            android:backgroundTint="#FFFFFF"/>
 
-        <LinearLayout
+        <Button
+            android:id="@+id/btnSend"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:layout_height="70dp"
+            android:layout_marginTop="16dp"
+            android:text="GÖNDER"
+            android:textSize="18sp"
+            android:backgroundTint="#1976D2"/>
 
-            <Button
-                android:id="@+id/btnSend"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Gönder" />
-
-            <Button
-                android:id="@+id/btnCancelCustomMessage"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Geri" />
-        </LinearLayout>
+        <Button
+            android:id="@+id/btnCancelCustomMessage"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_marginTop="8dp"
+            android:text="İPTAL"
+            android:backgroundTint="#D32F2F"/>
     </LinearLayout>
 
-    <Button
-        android:id="@+id/btnReset"
+    <!-- Alt Butonlar ve AFAD Kartı -->
+    <LinearLayout
+        android:id="@+id/bottomButtons"
         android:layout_width="match_parent"
-        android:layout_height="80dp"
-        android:layout_marginTop="16dp"
-        android:backgroundTint="#4CAF50"
-        android:text="DURDUR" />
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical">
 
-</LinearLayout>
+        <androidx.cardview.widget.CardView
+            android:id="@+id/afadMessageCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            app:cardBackgroundColor="#212121"
+            app:cardCornerRadius="10dp"
+            android:visibility="gone">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📢 AFAD TALİMATI:"
+                    android:textColor="#4CAF50"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:id="@+id/lastAfadMessage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="..."
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"/>
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <Button
+            android:id="@+id/btnReset"
+            android:layout_width="match_parent"
+            android:layout_height="70dp"
+            android:text="SİNYALİ DURDUR"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:backgroundTint="#424242"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+    <!-- Gizli Log Listesi -->
+    <ListView
+        android:id="@+id/listViewMessages"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:visibility="invisible"/>
+
+</RelativeLayout>

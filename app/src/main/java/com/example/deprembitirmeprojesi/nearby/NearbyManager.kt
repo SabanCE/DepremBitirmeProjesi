@@ -1,118 +1,189 @@
 package com.example.deprembitirmeprojesi.nearby
 
 import android.content.Context
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * NearbyManager: İnternet bağlantısı olmasa bile Bluetooth ve Wi-Fi üzerinden 
+ * cihazlar arası (P2P) haberleşmeyi sağlar.
+ */
 class NearbyManager(private val context: Context, private val listener: NearbyListener) {
 
     interface NearbyListener {
         fun onDeviceFound(endpointId: String, deviceName: String)
         fun onDataReceived(endpointId: String, message: String)
         fun onLogMessage(message: String)
-        fun onConnectionEstablished(endpointId: String)
+        fun onConnectionEstablished(endpointId: String, deviceName: String)
         fun onConnectionLost(endpointId: String)
         fun onConnectionFailed(endpointId: String)
     }
 
     private val connectionsClient = Nearby.getConnectionsClient(context)
     private val serviceId = context.packageName
-    private val strategy = Strategy.P2P_STAR
-    private val isConnectionLocked = AtomicBoolean(false)
-    private val foundEndpoints = mutableSetOf<String>()
+    private val strategy = Strategy.P2P_CLUSTER 
+    
+    // ÇAKIŞMA ÖNLEME: Her cihaz için benzersiz bir ID oluştur (İki cihazın aynı anda istek atmasını önler)
+    private val localId = java.util.UUID.randomUUID().toString()
+    
+    private var currentNickName = Build.MODEL
+    private val activeEndpoints = mutableMapOf<String, String>()
+    private val discoveredNames = mutableMapOf<String, String>()
+    
+    // 8012 (STATUS_ALREADY_CONNECTED_TO_ENDPOINT) hatasını önlemek için takip seti
+    private val connectingEndpoints = mutableSetOf<String>()
+    
+    private val handler = Handler(Looper.getMainLooper())
 
-    fun startAdvertising(nickName: String) {
+    private val isEmulator = Build.PRODUCT.contains("sdk") || 
+                             Build.MODEL.contains("Emulator") || 
+                             Build.MODEL.contains("Android SDK")
+
+    /**
+     * Hibrit modu başlatır. İnternet kopsa dahi Bluetooth üzerinden iletişim devam eder.
+     */
+    fun startHybridMode(nickName: String) {
+        currentNickName = nickName
+        listener.onLogMessage("🔄 Çevrimdışı Haberleşme Başlatılıyor (İnternet Gerekmez)...")
+        
+        // Önceki tüm işlemleri durdur ve temizle (Hataları önlemek için kritik)
         stopAll()
-        val advertisingOptions = AdvertisingOptions.Builder().setStrategy(strategy).build()
-        connectionsClient.startAdvertising(
-            nickName, serviceId, connectionLifecycleCallback, advertisingOptions
-        )
-            .addOnSuccessListener { listener.onLogMessage("📡 Yayın Başlatıldı: $nickName") }
-            .addOnFailureListener { e -> listener.onLogMessage("❌ YAYIN HATASI: ${e.message}") }
+
+        // 8007 (STATUS_ERROR) Çözümü: 
+        // Bazı cihazlarda (Örn: AFAD cihazları) Bluetooth radyosu yayın ve tarama 
+        // arasında hızlı geçiş yapamaz. Aralarına güvenli gecikmeler ekliyoruz.
+        handler.postDelayed({
+            if (!isEmulator) startAdvertising(currentNickName)
+        }, 1500)
+
+        handler.postDelayed({
+            startDiscovery()
+        }, 4000)
     }
 
-    fun startDiscovery() {
-        stopAll()
-        val discoveryOptions = DiscoveryOptions.Builder().setStrategy(strategy).build()
-        connectionsClient.startDiscovery(
-            serviceId, endpointDiscoveryCallback, discoveryOptions
-        )
-            .addOnSuccessListener { listener.onLogMessage("🔍 Tarama Başlatıldı...") }
-            .addOnFailureListener { e -> listener.onLogMessage("❌ TARAMA HATASI: ${e.message}") }
+    private fun startAdvertising(nickName: String) {
+        val options = AdvertisingOptions.Builder().setStrategy(strategy).build()
+        connectionsClient.startAdvertising(nickName, serviceId, connectionLifecycleCallback, options)
+            .addOnSuccessListener { listener.onLogMessage("📡 Yayın Aktif (Bluetooth)") }
+            .addOnFailureListener { e -> 
+                val code = (e as? ApiException)?.statusCode
+                if (code == 8007) {
+                    listener.onLogMessage("⚠️ Bluetooth Meşgul (8007). Lütfen Bluetooth'u kapatıp açın.")
+                } else {
+                    listener.onLogMessage("⚠️ Yayın Hatası ($code)")
+                }
+            }
+    }
+
+    private fun startDiscovery() {
+        val options = DiscoveryOptions.Builder().setStrategy(strategy).build()
+        connectionsClient.startDiscovery(serviceId, endpointDiscoveryCallback, options)
+            .addOnSuccessListener { listener.onLogMessage("🔍 Tarama Aktif") }
+            .addOnFailureListener { e -> 
+                val code = (e as? ApiException)?.statusCode
+                listener.onLogMessage("⚠️ Tarama Hatası ($code)")
+            }
     }
 
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            listener.onLogMessage("🔗 Bağlantı İsteği: ${info.endpointName}")
+            connectingEndpoints.add(endpointId)
+            discoveredNames[endpointId] = info.endpointName
+            listener.onLogMessage("🤝 Bağlantı isteği: ${info.endpointName}")
+            
+            // Deprem anında hızlı iletişim için gelen tüm bağlantıları otomatik kabul et
             connectionsClient.acceptConnection(endpointId, payloadCallback)
         }
 
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
+            connectingEndpoints.remove(endpointId)
             if (result.status.statusCode == ConnectionsStatusCodes.STATUS_OK) {
-                listener.onLogMessage("✅ BAĞLANDI! ($endpointId)")
-                listener.onConnectionEstablished(endpointId)
+                val name = discoveredNames[endpointId] ?: "Bilinmeyen"
+                activeEndpoints[endpointId] = name
+                listener.onLogMessage("✅ Bağlandı: $name")
+                listener.onConnectionEstablished(endpointId, name)
             } else {
-                listener.onLogMessage("❌ BAĞLANTI REDDEDİLDİ: ${result.status.statusMessage}")
+                val code = result.status.statusCode
+                listener.onLogMessage("❌ Bağlantı hatası: $code")
                 listener.onConnectionFailed(endpointId)
             }
         }
 
         override fun onDisconnected(endpointId: String) {
-            listener.onLogMessage("⚠️ Bağlantı Koptu ($endpointId)")
+            connectingEndpoints.remove(endpointId)
+            val name = activeEndpoints.remove(endpointId)
+            listener.onLogMessage("⚠️ Koptu: $name")
             listener.onConnectionLost(endpointId)
         }
     }
 
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
-            if (!foundEndpoints.contains(endpointId)) {
-                foundEndpoints.add(endpointId)
-                listener.onDeviceFound(endpointId, info.endpointName)
-                listener.onLogMessage("Cihaz Bulundu: ${info.endpointName}. Bağlanılıyor...")
+            // 8012 Çözümü: Eğer zaten bağlıysak veya şu an bağlanma aşamasındaysak isteği engelle
+            if (activeEndpoints.containsKey(endpointId) || connectingEndpoints.contains(endpointId)) {
+                return
+            }
 
-                connectionsClient.requestConnection("AFAD_EKIBI", endpointId, connectionLifecycleCallback)
-                    .addOnFailureListener { e ->
-                        listener.onLogMessage("❌ BAĞLANTI İSTEĞİ HATASI: ${e.message}")
-                        listener.onConnectionFailed(endpointId)
+            discoveredNames[endpointId] = info.endpointName
+            listener.onLogMessage("📍 Cihaz bulundu: ${info.endpointName}")
+            listener.onDeviceFound(endpointId, info.endpointName)
+            
+            // ÇAKIŞMA ÖNLEME DÜZELTME: 
+            // İki cihaz birbirini bulduğunda kimin 'request' atacağına isim sırasına göre karar veriyoruz.
+            // Bu sayede her iki cihaz da beklemez, biri mutlaka istek atar.
+            val shouldIRequest = currentNickName > info.endpointName
+            
+            if (shouldIRequest) {
+                listener.onLogMessage("🔗 Bağlantı isteği gönderiliyor...")
+                connectingEndpoints.add(endpointId)
+                connectionsClient.requestConnection(currentNickName, endpointId, connectionLifecycleCallback)
+                    .addOnFailureListener { e -> 
+                        connectingEndpoints.remove(endpointId)
+                        val code = (e as? ApiException)?.statusCode
+                        listener.onLogMessage("❌ İstek başarısız: $code")
                     }
+            } else {
+                listener.onLogMessage("⏳ Karşı tarafın (isim sırasına göre) isteği bekleniyor...")
             }
         }
 
         override fun onEndpointLost(endpointId: String) {
-            foundEndpoints.remove(endpointId)
-            listener.onLogMessage("Cihaz Kapsamdan Çıktı: $endpointId")
+            connectingEndpoints.remove(endpointId)
         }
     }
 
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
-            payload.asBytes()?.let {
-                val message = String(it, StandardCharsets.UTF_8)
+            if (payload.type == Payload.Type.BYTES) {
+                val message = String(payload.asBytes()!!, StandardCharsets.UTF_8)
                 listener.onDataReceived(endpointId, message)
             }
         }
-        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) { }
+        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {}
     }
 
     fun sendData(endpointId: String, message: String) {
         connectionsClient.sendPayload(endpointId, Payload.fromBytes(message.toByteArray(StandardCharsets.UTF_8)))
-            .addOnFailureListener { e -> listener.onLogMessage("❌ VERİ GÖNDERME HATASI: ${e.message}") }
+    }
+
+    fun broadcastData(message: String) {
+        val targets = activeEndpoints.keys.toList()
+        if (targets.isNotEmpty()) {
+            connectionsClient.sendPayload(targets, Payload.fromBytes(message.toByteArray(StandardCharsets.UTF_8)))
+        }
     }
 
     fun stopAll() {
-        foundEndpoints.clear()
+        activeEndpoints.clear()
+        discoveredNames.clear()
+        connectingEndpoints.clear()
         connectionsClient.stopAllEndpoints()
         connectionsClient.stopAdvertising()
-        connectionsClient.stopDiscovery()
-    }
-
-    fun stopAdvertisingOnly() {
-        connectionsClient.stopAdvertising()
-    }
-
-    fun stopDiscoveryOnly() {
         connectionsClient.stopDiscovery()
     }
 }

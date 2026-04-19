@@ -1,24 +1,37 @@
 package com.example.deprembitirmeprojesi.util
+
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import com.example.deprembitirmeprojesi.util.Constants
+import kotlin.math.abs
 import kotlin.math.sqrt
 
-// Bu sınıf sensör verisini dinler ve MainActivity'e haber verir
-
-
+/**
+ * Deprem karakteristiğini (pattern) tespit eden yardımcı sınıf.
+ * Sadece eşik değerini değil; sarsıntının süresini, eksen çeşitliliğini ve sürekliliğini kontrol eder.
+ */
 class AccelerometerHelper(context: Context, private val listener: AccelerometerListener) : SensorEventListener {
 
     interface AccelerometerListener {
-        fun onShakeDetected(force: Float) // Deprem/Sarsıntı algılandı
+        fun onShakeDetected(force: Float) // Pattern doğrulandı (Deprem tespiti)
         fun onSensorChanged(x: Float, y: Float, z: Float) // Grafik için ham veri
     }
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+    // --- Pattern Takip Değişkenleri ---
+    private var shakeStartTime: Long = 0
+    private var lastSignificantMoveTime: Long = 0
+    private val activeAxes = mutableSetOf<Int>() // 0:X, 1:Y, 2:Z
+
+    // --- Algoritma Parametreleri (Kritik Pattern Değerleri) ---
+    private val MIN_SHAKE_DURATION = 1500L      // Sarsıntı en az 1.5 saniye sürmeli (Anlık düşmeleri eler)
+    private val MAX_GAP_BETWEEN_SHAKES = 500L    // Sarsıntılar arası max boşluk (Süreklilik kontrolü)
+    private val MIN_AXES_COUNT = 2               // En az 2 eksende hareket olmalı (Kaotik yapı)
+    private val SHAKE_THRESHOLD = 0.4f            // Sarsıntı hassasiyeti (Yerçekimi normalize edilmiş)
 
     fun start() {
         accelerometer?.let {
@@ -28,6 +41,7 @@ class AccelerometerHelper(context: Context, private val listener: AccelerometerL
 
     fun stop() {
         sensorManager.unregisterListener(this)
+        resetPattern()
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -36,24 +50,61 @@ class AccelerometerHelper(context: Context, private val listener: AccelerometerL
             val y = it.values[1]
             val z = it.values[2]
 
-            // Yerçekimi ivmesini (g ~ 9.8) normalize etmek için:
+            // 1. Veriyi Normalize Et (Yerçekimi etkisini çıkar)
             val gX = x / SensorManager.GRAVITY_EARTH
             val gY = y / SensorManager.GRAVITY_EARTH
             val gZ = z / SensorManager.GRAVITY_EARTH
-
-            // Vektörel Büyüklük Hesaplama (Karekök(x^2 + y^2 + z^2))
-            // 1.0f çıkarıyoruz ki telefon sabitken 0'a yakın olsun (Yerçekimini siliyoruz)
+            
+            // Vektörel büyüklükten 1.0 (sabit yerçekimi) çıkarıyoruz
             val gForce = sqrt(gX * gX + gY * gY + gZ * gZ) - 1.0f
 
-            listener.onSensorChanged(x, y, z) // Grafiğe veri gönder
+            listener.onSensorChanged(x, y, z) // Grafik için ham veriyi gönder
 
-            if (gForce > Constants.SHAKE_THRESHOLD) {
-                listener.onShakeDetected(gForce) // Deprem uyarısı gönder
+            val currentTime = System.currentTimeMillis()
+
+            // 2. Hareket Algılama ve Eksen Takibi
+            if (abs(gForce) > SHAKE_THRESHOLD) {
+                if (shakeStartTime == 0L) {
+                    shakeStartTime = currentTime
+                }
+                lastSignificantMoveTime = currentTime
+
+                // Hangi eksenlerde belirgin sapma var?
+                if (abs(gX) > SHAKE_THRESHOLD / 2) activeAxes.add(0)
+                if (abs(gY) > SHAKE_THRESHOLD / 2) activeAxes.add(1)
+                if (abs(gZ) > SHAKE_THRESHOLD / 2) activeAxes.add(2)
+            }
+
+            // 3. Pattern Analizi
+            if (shakeStartTime != 0L) {
+                // Sarsıntı kesildi mi? (Eğer 500ms sarsıntı yoksa pattern bozulmuştur)
+                if (currentTime - lastSignificantMoveTime > MAX_GAP_BETWEEN_SHAKES) {
+                    resetPattern()
+                    return
+                }
+
+                val duration = currentTime - shakeStartTime
+
+                // DOĞRULAMA (DEPREM PATTERNİ):
+                // - Süre 1.5 saniyeyi geçti mi?
+                // - En az 2 farklı eksende (X, Y veya Z) hareket var mı?
+                if (duration >= MIN_SHAKE_DURATION && activeAxes.size >= MIN_AXES_COUNT) {
+                    listener.onShakeDetected(gForce)
+                    
+                    // Sürekli tetiklenmemesi için resetliyoruz
+                    resetPattern()
+                }
             }
         }
     }
 
+    private fun resetPattern() {
+        shakeStartTime = 0L
+        lastSignificantMoveTime = 0L
+        activeAxes.clear()
+    }
+
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Gerek yok
+        // Kullanılmıyor
     }
 }

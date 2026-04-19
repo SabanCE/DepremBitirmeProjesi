@@ -1,12 +1,13 @@
 package com.example.deprembitirmeprojesi.ui
 
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityProfileBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 
 class ProfileActivity : AppCompatActivity() {
 
@@ -22,6 +23,11 @@ class ProfileActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         firestore = FirebaseFirestore.getInstance()
 
+        // Toolbar ayarı
+        binding.toolbar.setNavigationOnClickListener {
+            onBackPressedDispatcher.onBackPressed()
+        }
+
         loadUserProfile()
 
         binding.btnSaveProfile.setOnClickListener {
@@ -30,59 +36,62 @@ class ProfileActivity : AppCompatActivity() {
     }
 
     private fun loadUserProfile() {
-        val userId = auth.currentUser?.uid
-        if (userId != null) {
-            firestore.collection("users").document(userId).get()
-                .addOnSuccessListener { document ->
-                    if (document != null && document.exists()) {
-                        val userProfile = document.toObject(UserProfile::class.java)
-                        if (userProfile != null) {
-                            binding.etFullName.setText(userProfile.fullName)
-                            binding.etTCKN.setText(userProfile.tckn)
-                            binding.etBirthDate.setText(userProfile.birthDate)
-                            binding.etBloodType.setText(userProfile.bloodType)
-                            binding.etGender.setText(userProfile.gender)
-                            binding.etDisabilityStatus.setText(userProfile.disabilityStatus)
-                            binding.etChronicIllness.setText(userProfile.chronicIllness)
-                            binding.etAllergies.setText(userProfile.allergies)
-                            binding.etRegularMedication.setText(userProfile.regularMedication)
-                            binding.etPregnancyStatus.setText(userProfile.pregnancyStatus)
-                            binding.etApartmentInfo.setText(userProfile.apartmentInfo)
-                            binding.etFloorInfo.setText(userProfile.floorInfo)
-                        }
+        val user = auth.currentUser
+        val userId = user?.uid ?: return
+        
+        firestore.collection("users").document(userId).get()
+            .addOnSuccessListener { document ->
+                if (document != null && document.exists()) {
+                    val profile = document.toObject(UserProfile::class.java)
+                    profile?.let {
+                        binding.etFullName.setText(it.fullName)
+                        binding.tvProfileName.text = it.fullName.ifBlank { "Ad Soyad" }
+                        binding.etTCKN.setText(it.tckn)
+                        binding.etBirthDate.setText(it.birthDate)
+                        binding.etBloodType.setText(it.bloodType)
+                        binding.etChronicIllness.setText(it.chronicIllness)
+                        binding.etRegularMedication.setText(it.regularMedication)
+                        binding.etApartmentInfo.setText(it.apartmentInfo)
+                        binding.etFloorInfo.setText(it.floorInfo)
                     }
+                } else {
+                    // Eğer doküman yoksa email bilgisini varsayılan olarak gösterelim
+                    binding.tvProfileName.text = user.email ?: "Kullanıcı"
                 }
-                .addOnFailureListener { e ->
-                    Toast.makeText(this, "Bilgiler yüklenirken hata oluştu: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-        }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Bilgiler yüklenemedi: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
     }
 
     private fun saveUserProfile() {
-        val userId = auth.currentUser?.uid
-        if (userId != null) {
-            val userProfileUpdates = mapOf(
-                "fullName" to binding.etFullName.text.toString(),
-                "tckn" to binding.etTCKN.text.toString(),
-                "birthDate" to binding.etBirthDate.text.toString(),
-                "bloodType" to binding.etBloodType.text.toString(),
-                "gender" to binding.etGender.text.toString(),
-                "disabilityStatus" to binding.etDisabilityStatus.text.toString(),
-                "chronicIllness" to binding.etChronicIllness.text.toString(),
-                "allergies" to binding.etAllergies.text.toString(),
-                "regularMedication" to binding.etRegularMedication.text.toString(),
-                "pregnancyStatus" to binding.etPregnancyStatus.text.toString(),
-                "apartmentInfo" to binding.etApartmentInfo.text.toString(),
-                "floorInfo" to binding.etFloorInfo.text.toString()
-            )
+        val user = auth.currentUser
+        val userId = user?.uid ?: return
+        val userEmail = user.email ?: ""
+        
+        val name = binding.etFullName.text.toString()
+        
+        // Verileri UID ile ilişkilendirip email'i de içinde tutuyoruz
+        val updates = hashMapOf(
+            "fullName" to name,
+            "email" to userEmail,
+            "tckn" to binding.etTCKN.text.toString(),
+            "birthDate" to binding.etBirthDate.text.toString(),
+            "bloodType" to binding.etBloodType.text.toString(),
+            "chronicIllness" to binding.etChronicIllness.text.toString(),
+            "regularMedication" to binding.etRegularMedication.text.toString(),
+            "apartmentInfo" to binding.etApartmentInfo.text.toString(),
+            "floorInfo" to binding.etFloorInfo.text.toString()
+        )
 
-            firestore.collection("users").document(userId).update(userProfileUpdates)
-                .addOnSuccessListener {
-                    Toast.makeText(this, "Profil bilgileri başarıyla güncellendi.", Toast.LENGTH_SHORT).show()
-                }
-                .addOnFailureListener { e ->
-                    Toast.makeText(this, "Güncellerken hata oluştu: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-        }
+        firestore.collection("users").document(userId)
+            .set(updates, SetOptions.merge())
+            .addOnSuccessListener {
+                binding.tvProfileName.text = name.ifBlank { userEmail }
+                Toast.makeText(this, "Profil başarıyla güncellendi.", Toast.LENGTH_SHORT).show()
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Güncelleme hatası: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
     }
 }

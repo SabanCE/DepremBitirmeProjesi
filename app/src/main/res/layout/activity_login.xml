@@ -2,114 +2,161 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/gradient_background"
-    tools:context=".LoginActivity">
+    android:background="#121212"
+    tools:context=".ui.LoginActivity">
+
+    <View
+        android:id="@+id/topGradient"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:background="@drawable/gradient_background"
+        android:alpha="0.3"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <ImageView
         android:id="@+id/logo_image"
-        android:layout_width="150dp"
-        android:layout_height="150dp"
+        android:layout_width="140dp"
+        android:layout_height="140dp"
+        android:layout_marginTop="60dp"
         android:src="@drawable/logo"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="50dp"/>
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <TextView
         android:id="@+id/login_title"
-        android:layout_width="0dp"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:gravity="center"
         android:text="DEPREM GÜVENDE"
-        android:textColor="#000"
-        android:textSize="24sp"
-        android:layout_marginStart="32dp"
-        android:layout_marginEnd="32dp"
+        android:textColor="#FFFFFF"
+        android:textSize="26sp"
+        android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/logo_image" />
 
-    <EditText
-        android:id="@+id/email_input"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:hint="Email"
-        android:inputType="textEmailAddress"
-        android:background="@drawable/edit_text_background"
-        app:layout_constraintTop_toBottomOf="@id/login_title"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginStart="32dp"
-        android:layout_marginEnd="32dp"
-        android:layout_marginTop="50dp"/>
-
-    <EditText
-        android:id="@+id/password_input"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:hint="Parola"
-        android:inputType="textPassword"
-        android:background="@drawable/edit_text_background"
-        app:layout_constraintTop_toBottomOf="@id/email_input"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginStart="32dp"
-        android:layout_marginEnd="32dp"
-        android:layout_marginTop="16dp"/>
-
     <TextView
-        android:id="@+id/forgot_password_text"
+        android:id="@+id/login_subtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Şifremi Unuttum"
-        android:textColor="#0000FF"
-        android:textStyle="bold"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="32dp"
-        app:layout_constraintTop_toBottomOf="@id/password_input"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-    <Button
-        android:id="@+id/login_button"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="Giriş Yap"
-        android:background="@drawable/edit_text_background"
-        android:textColor="@android:color/black"
-        app:layout_constraintTop_toBottomOf="@+id/forgot_password_text"
-        app:layout_constraintStart_toStartOf="parent"
+        android:text="Lütfen hesabınıza giriş yapın"
+        android:textColor="#BBBBBB"
+        android:textSize="14sp"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginStart="32dp"
-        android:layout_marginEnd="32dp"
-        android:layout_marginTop="16dp"/>
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/login_title" />
 
-    <TextView
-        android:id="@+id/no_account_text"
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/loginCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="24dp"
+        android:layout_marginTop="40dp"
+        app:cardBackgroundColor="#1E1E1E"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="8dp"
+        app:strokeWidth="0dp"
+        app:layout_constraintTop_toBottomOf="@id/login_subtitle">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:textColorHint="#888888"
+                app:boxStrokeColor="#D32F2F"
+                app:hintTextColor="#D32F2F"
+                app:startIconDrawable="@drawable/ic_user_profile"
+                app:startIconTint="#888888">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/email_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Email Adresi"
+                    android:inputType="textEmailAddress"
+                    android:textColor="#FFFFFF" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColorHint="#888888"
+                app:boxStrokeColor="#D32F2F"
+                app:hintTextColor="#D32F2F"
+                app:passwordToggleEnabled="true"
+                app:passwordToggleTint="#888888"
+                app:startIconDrawable="@drawable/ic_back"
+                app:startIconTint="#888888">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/password_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Şifre"
+                    android:inputType="textPassword"
+                    android:textColor="#FFFFFF" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/forgot_password_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginTop="8dp"
+                android:text="Şifremi Unuttum"
+                android:textColor="#D32F2F"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/login_button"
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:layout_marginTop="24dp"
+                android:backgroundTint="#D32F2F"
+                android:text="GİRİŞ YAP"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                app:cornerRadius="16dp" />
+
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Hesabın yok mu? "
-        android:textColor="@android:color/black"
         android:layout_marginTop="24dp"
-        app:layout_constraintTop_toBottomOf="@id/login_button"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/register_text_button"
-        app:layout_constraintHorizontal_chainStyle="packed"
-        app:layout_constraintHorizontal_bias="0.5"/>
+        app:layout_constraintTop_toBottomOf="@id/loginCard">
 
-    <TextView
-        android:id="@+id/register_text_button"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Kayıt Ol"
-        android:textColor="#0000FF"
-        android:textStyle="bold"
-        app:layout_constraintTop_toTopOf="@id/no_account_text"
-        app:layout_constraintBottom_toBottomOf="@id/no_account_text"
-        app:layout_constraintStart_toEndOf="@id/no_account_text"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <TextView
+            android:id="@+id/no_account_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hesabınız yok mu? "
+            android:textColor="#BBBBBB" />
+
+        <TextView
+            android:id="@+id/register_text_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Kayıt Ol"
+            android:textColor="#D32F2F"
+            android:textStyle="bold" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -2,24 +2,25 @@ package com.example.deprembitirmeprojesi.data
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 
 @Dao
 interface ReportDao {
-    // Yeni raporu kaydet
-    @Insert
-    suspend fun insertReport(report: DisasterReport)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertReport(report: DisasterReport)
 
-    // Henüz yüklenmemiş raporları getir
-    @Query("SELECT * FROM reports WHERE isUploaded = 0")
-    suspend fun getPendingReports(): List<DisasterReport>
+    @Query("SELECT * FROM disaster_reports WHERE senderId = :senderId LIMIT 1")
+    suspend fun getReportBySender(senderId: String): DisasterReport?
 
-    // Raporu güncelle (Yüklendi olarak işaretlemek için)
+    @Query("SELECT * FROM disaster_reports ORDER BY lastSeenTimestamp DESC")
+    suspend fun getAllReports(): List<DisasterReport>
+
     @Update
     suspend fun updateReport(report: DisasterReport)
-    
-    // Tüm raporları getir (Listeleme ekranı için opsiyonel)
-    @Query("SELECT * FROM reports ORDER BY receivedTimestamp DESC")
-    suspend fun getAllReports(): List<DisasterReport>
+
+    // reports tablosu eski sürümden kaldıysa burayı koruyoruz
+    @Query("SELECT * FROM disaster_reports WHERE isUploaded = 0")
+    suspend fun getPendingReports(): List<DisasterReport>
 }

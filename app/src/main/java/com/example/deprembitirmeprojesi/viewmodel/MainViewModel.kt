@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.location.Geocoder
 import android.location.Location
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -18,6 +19,7 @@ import com.example.deprembitirmeprojesi.util.Constants
 import com.example.deprembitirmeprojesi.worker.AlertCleanupWorker
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.launch
@@ -26,37 +28,36 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-// Arayüzün farklı durumlarını temsil eden kapalı sınıf (Sealed Class)
 sealed class UiState {
-    object Safe : UiState() // Güvende durumu
-    data class ShakeDetected(val magnitude: Float) : UiState() // Sarsıntı algılandı, teyit bekleniyor
-    data class Confirmed(val magnitude: Float, val nearbyDevices: Int) : UiState() // Deprem kesinleşti
+    object Safe : UiState()
+    object Analysing : UiState()
+    data class RiskDetected(val score: Double, val level: String) : UiState()
+    data class Confirmed(val magnitude: Float, val nearby: Int) : UiState()
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    // Veritabanı ve servis bağlantıları
+    private val TAG = "MainViewModel_Debug"
     private val database = AppDatabase.getDatabase(application)
     private val firestore = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(application)
     private var confirmationListener: ListenerRegistration? = null
     private val workManager = WorkManager.getInstance(application)
+    private val notificationHelper = com.example.deprembitirmeprojesi.util.NotificationHelper(application)
 
     private var lastShakeTimestamp = 0L
-    private val SHAKE_COOLDOWN_MS = 10000 // 10 saniye
+    private val SHAKE_COOLDOWN_MS = 60000L // 1 dakika içinde tekrar veri gönderme barajı
 
-    // Acil Durum Moduna Geçiş İçin Sinyal
     private val _navigateToEmergencyMode = MutableLiveData<Boolean>()
     val navigateToEmergencyMode: LiveData<Boolean> get() = _navigateToEmergencyMode
 
-    // Activity'nin dinleyeceği canlı veriler (LiveData)
     val earthquakeRecords: LiveData<List<EarthquakeRecord>> = database.earthquakeDao().getAllEarthquakes().asLiveData()
-    val lastEarthquake: LiveData<EarthquakeRecord?> = database.earthquakeDao().getLastEarthquake().asLiveData()
+    
     private val _toastMessage = MutableLiveData<String>()
     val toastMessage: LiveData<String> get() = _toastMessage
 
-    // Arayüz Durumu için LiveData
-    private val _uiState = MutableLiveData<UiState>(UiState.Safe) // Başlangıç durumu: Güvende
+    private val _uiState = MutableLiveData<UiState>(UiState.Safe)
     val uiState: LiveData<UiState> get() = _uiState
 
     init {
@@ -74,12 +75,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onEarthquakeDetected(magnitude: Float) {
         val currentTime = System.currentTimeMillis()
-        if (currentTime - lastShakeTimestamp < SHAKE_COOLDOWN_MS) {
+        if (currentTime - lastShakeTimestamp < SHAKE_COOLDOWN_MS) return
+        
+        // 5.0f altındaki küçük titreşimleri analiz bile etme (Hassasiyeti düşürdük)
+        if (magnitude < 5.0f) {
+            Log.d(TAG, "Önemsiz sarsıntı: $magnitude, işlem iptal.")
             return
         }
-        lastShakeTimestamp = currentTime
 
-        _uiState.postValue(UiState.ShakeDetected(magnitude))
+        lastShakeTimestamp = currentTime
+        Log.d(TAG, "Sarsıntı Algılandı! Şiddet: $magnitude")
+        
+        _uiState.postValue(UiState.Analysing)
         processEarthquakeData(magnitude)
     }
 
@@ -89,8 +96,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .addOnSuccessListener { location: Location? ->
                 handleLocationData(magnitude, location)
             }
-            .addOnFailureListener { exception ->
-                _toastMessage.postValue("❌ Konum alınamadı: ${exception.message}")
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Konum hatası: ${e.message}")
                 handleLocationData(magnitude, null)
             }
     }
@@ -98,66 +105,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun handleLocationData(magnitude: Float, location: Location?) {
         val context = getApplication<Application>().applicationContext
         val currentTime = System.currentTimeMillis()
-        var latitude = 0.0
-        var longitude = 0.0
+        val latitude = location?.latitude ?: 0.0
+        val longitude = location?.longitude ?: 0.0
         var addressText = Constants.LOCATION_NOT_AVAILABLE
         var city = Constants.UNKNOWN
         var district = Constants.UNKNOWN
 
         if (location != null) {
-            latitude = location.latitude
-            longitude = location.longitude
             try {
                 val geocoder = Geocoder(context, Locale.getDefault())
-                @Suppress("DEPRECATION")
                 val addresses = geocoder.getFromLocation(latitude, longitude, 1)
-                if (addresses != null && addresses.isNotEmpty()) {
+                if (!addresses.isNullOrEmpty()) {
                     val adr = addresses[0]
                     city = adr.adminArea ?: ""
                     district = adr.subAdminArea ?: adr.locality ?: ""
                     addressText = "$city / $district"
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                addressText = Constants.ADDRESS_NOT_FOUND
+            } catch (e: Exception) { 
+                addressText = Constants.ADDRESS_NOT_FOUND 
             }
-        } else {
-            _toastMessage.postValue("Uyarı: Konum bilgisi alınamadı. Teyit başarısız olabilir.")
         }
 
-        viewModelScope.launch {
-            val newRecord = EarthquakeRecord(
-                timestamp = currentTime,
-                magnitude = magnitude,
-                status = Constants.STATUS_ANALYSING, // Durum Analiz Ediliyor olarak ayarlandı
-                address = addressText,
-                latitude = latitude,
-                longitude = longitude
-            )
-            val recordId = database.earthquakeDao().insert(newRecord)
+        val tempRecord = EarthquakeRecord(
+            timestamp = currentTime,
+            magnitude = magnitude,
+            status = Constants.STATUS_ANALYSING,
+            address = addressText,
+            latitude = latitude,
+            longitude = longitude
+        )
 
-            // Firebase'e gönder ve başarılı olursa temizlik görevini planla
-            sendToFirebase(newRecord.copy(id = recordId), city, district)
-        }
-    }
-
-    private fun scheduleCleanupWorker(localRecordId: Long, firebaseDocId: String) {
-        val cleanupRequest = OneTimeWorkRequestBuilder<AlertCleanupWorker>()
-            .setInitialDelay(40, TimeUnit.SECONDS)
-            .setInputData(workDataOf(
-                "KEY_RECORD_ID" to localRecordId,
-                "KEY_FIREBASE_DOC_ID" to firebaseDocId // Firebase ID'sini de ekle
-            ))
-            .addTag("cleanup_$localRecordId")
-            .build()
-        
-        workManager.enqueue(cleanupRequest)
+        // Yerel DB'ye yazmıyoruz, sadece Firebase'e gönderiyoruz
+        sendToFirebase(tempRecord, city, district)
     }
 
     private fun sendToFirebase(record: EarthquakeRecord, city: String, dist: String) {
         val sdf = SimpleDateFormat(Constants.DATE_FORMAT, Locale.getDefault())
-        val dateStr = sdf.format(Date(record.timestamp))
-        val currentUserId = Constants.DUMMY_USER_ID
+        val currentUserId = auth.currentUser?.uid ?: Constants.DUMMY_USER_ID
 
         val alertData = hashMapOf(
             Constants.FIELD_USER_ID to currentUserId,
@@ -167,107 +151,118 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Constants.FIELD_CITY to city,
             Constants.FIELD_DISTRICT to dist,
             Constants.FIELD_TIMESTAMP to record.timestamp,
-            Constants.FIELD_DATETIME to dateStr,
+            Constants.FIELD_DATETIME to sdf.format(Date(record.timestamp)),
             Constants.FIELD_STATUS to Constants.STATUS_ANALYSING,
             Constants.FIELD_NEARBY_DEVICES to 0,
-            "local_db_id" to record.id // Yerel DB ID'sini Firestore'a ekliyoruz
+            "address_text" to record.address
         )
 
-        _toastMessage.postValue("✅ Sinyal Gönderildi. Çevresel teyit aranıyor...")
-
         firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).add(alertData)
-            .addOnSuccessListener { documentReference ->
-                // Gecikmeli temizlik görevini Firebase ID ile planla
-                scheduleCleanupWorker(record.id, documentReference.id)
-
-                listenForConfirmation(documentReference.id, record.magnitude)
-                checkForNearbyAlerts(record, currentUserId, documentReference.id)
-            }
-            .addOnFailureListener {
-                _toastMessage.postValue("❌ İnternet Yok! Acil Durum Moduna Geçiliyor...")
-                _navigateToEmergencyMode.postValue(true)
+            .addOnSuccessListener { docRef ->
+                Log.d(TAG, "✅ Geçici sinyal Firebase'e yazıldı. ID: ${docRef.id}")
+                
+                // CleanupWorker'a sadece Firebase Doc ID gönderiyoruz
+                scheduleFirebaseCleanup(docRef.id)
+                
+                listenForConfirmation(docRef.id)
+                checkForNearbyAlerts(record, currentUserId, docRef.id)
             }
     }
 
-    private fun listenForConfirmation(documentId: String, magnitude: Float) {
+    private fun listenForConfirmation(documentId: String) {
+        confirmationListener?.remove()
         val docRef = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(documentId)
-        confirmationListener = docRef.addSnapshotListener { snapshot, e ->
-            if (e != null) {
-                _toastMessage.postValue("Dinleme hatası: ${e.message}")
+        confirmationListener = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "Listen error: ${error.message}")
                 return@addSnapshotListener
             }
 
             if (snapshot != null && snapshot.exists()) {
-                if (snapshot.getString(Constants.FIELD_STATUS) == Constants.STATUS_EARTHQUAKE) {
-                    val nearbyDevices = snapshot.getLong(Constants.FIELD_NEARBY_DEVICES)?.toInt() ?: 0
-                    val localDbId = snapshot.getLong("local_db_id")
+                val status = snapshot.getString(Constants.FIELD_STATUS)
+                Log.d(TAG, "Firebase Update: Status = $status")
+                
+                if (status == Constants.STATUS_EARTHQUAKE) {
+                    Log.d(TAG, "!!! DEPREM ONAYLANDI !!! Yerel DB'ye kaydediliyor.")
                     
-                    if(localDbId != null) {
-                        // Deprem onaylandığında, planlanan temizlik görevini iptal et
-                        workManager.cancelAllWorkByTag("cleanup_$localDbId")
-                        viewModelScope.launch {
-                            database.earthquakeDao().updateStatus(localDbId, Constants.STATUS_EARTHQUAKE)
-                        }
+                    val magnitude = snapshot.getDouble(Constants.FIELD_MAGNITUDE)?.toFloat() ?: 0f
+                    val nearby = snapshot.getLong(Constants.FIELD_NEARBY_DEVICES)?.toInt() ?: 0
+                    val timestamp = snapshot.getLong(Constants.FIELD_TIMESTAMP) ?: System.currentTimeMillis()
+                    val lat = snapshot.getDouble(Constants.FIELD_LATITUDE) ?: 0.0
+                    val lng = snapshot.getDouble(Constants.FIELD_LONGITUDE) ?: 0.0
+                    val address = snapshot.getString("address_text") ?: Constants.UNKNOWN
+
+                    viewModelScope.launch {
+                        val confirmedRecord = EarthquakeRecord(
+                            timestamp = timestamp,
+                            magnitude = magnitude,
+                            status = Constants.STATUS_EARTHQUAKE,
+                            address = address,
+                            latitude = lat,
+                            longitude = lng
+                        )
+                        database.earthquakeDao().insert(confirmedRecord)
                     }
+
+                    _uiState.postValue(UiState.Confirmed(magnitude, nearby))
+                    notificationHelper.sendConfirmedNotification(magnitude, nearby)
+                    _navigateToEmergencyMode.postValue(true)
                     
-                    _uiState.postValue(UiState.Confirmed(magnitude, nearbyDevices))
-                    _navigateToEmergencyMode.postValue(true) // Yönlendirmeyi tetikle
                     confirmationListener?.remove()
-                    confirmationListener = null
                 }
+            } else {
+                Log.d(TAG, "Analiz verisi silindi veya bulunamadı. Durum: Güvende")
+                _uiState.postValue(UiState.Safe)
+                confirmationListener?.remove()
             }
         }
     }
 
-    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
-        val results = FloatArray(1)
-        Location.distanceBetween(lat1, lon1, lat2, lon2, results)
-        return results[0]
-    }
-
-    private fun checkForNearbyAlerts(recordToInsert: EarthquakeRecord, currentUserId: String, currentDocumentId: String) {
-        val timeThreshold = System.currentTimeMillis() - Constants.TIME_THRESHOLD_MS
+    private fun checkForNearbyAlerts(myRecord: EarthquakeRecord, myId: String, myDocId: String) {
+        val timeLimit = System.currentTimeMillis() - Constants.TIME_THRESHOLD_MS
 
         firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS)
-            .whereGreaterThan(Constants.FIELD_TIMESTAMP, timeThreshold)
+            .whereGreaterThan(Constants.FIELD_TIMESTAMP, timeLimit)
             .get()
             .addOnSuccessListener { documents ->
-                val nearbyAlertsToUpdate = mutableListOf<String>()
-                var isConfirmed = false
+                val nearbyDocs = mutableListOf<String>()
+                
+                for (doc in documents) {
+                    val otherId = doc.getString(Constants.FIELD_USER_ID) ?: ""
+                    if (otherId == myId) continue 
 
-                for (document in documents) {
-                    val otherUserId = document.getString(Constants.FIELD_USER_ID) ?: ""
-                    if (otherUserId == currentUserId) continue
-
-                    val otherLat = document.getDouble(Constants.FIELD_LATITUDE) ?: 0.0
-                    val otherLng = document.getDouble(Constants.FIELD_LONGITUDE) ?: 0.0
-
-                    val distance = calculateDistance(recordToInsert.latitude, recordToInsert.longitude, otherLat, otherLng)
-                    if (distance < Constants.DISTANCE_THRESHOLD_METERS && document.getString(Constants.FIELD_STATUS) == Constants.STATUS_ANALYSING) {
-                        isConfirmed = true
-                        nearbyAlertsToUpdate.add(document.id)
+                    val lat = doc.getDouble(Constants.FIELD_LATITUDE) ?: 0.0
+                    val lng = doc.getDouble(Constants.FIELD_LONGITUDE) ?: 0.0
+                    
+                    val results = FloatArray(1)
+                    Location.distanceBetween(myRecord.latitude, myRecord.longitude, lat, lng, results)
+                    
+                    if (results[0] < Constants.DISTANCE_THRESHOLD_METERS) {
+                        nearbyDocs.add(doc.id)
                     }
                 }
 
-                if (isConfirmed) {
-                    nearbyAlertsToUpdate.add(currentDocumentId)
-
+                if (nearbyDocs.isNotEmpty()) {
+                    Log.d(TAG, "Mesafe teyidi başarılı. Status güncelleniyor.")
+                    nearbyDocs.add(myDocId)
                     val batch = firestore.batch()
-                    for (docId in nearbyAlertsToUpdate) {
-                        val docRef = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(docId)
-                        batch.update(docRef, Constants.FIELD_STATUS, Constants.STATUS_EARTHQUAKE)
-                        batch.update(docRef, Constants.FIELD_NEARBY_DEVICES, nearbyAlertsToUpdate.size - 1)
+                    nearbyDocs.forEach { id ->
+                        val ref = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(id)
+                        batch.update(ref, Constants.FIELD_STATUS, Constants.STATUS_EARTHQUAKE)
+                        batch.update(ref, Constants.FIELD_NEARBY_DEVICES, nearbyDocs.size - 1)
                     }
-
-                    batch.commit().addOnFailureListener { 
-                        _toastMessage.postValue("Durum güncelleme başarısız: ${it.message}")
-                    }
-
+                    batch.commit()
                 } else {
-                    _uiState.postValue(UiState.Safe)
-                    _toastMessage.postValue("⚠️ Teyit Alınamadı: Yakında başka sinyal yok.")
+                    Log.d(TAG, "Teyit henüz yok.")
                 }
             }
-            .addOnFailureListener { _toastMessage.postValue("Sunucu teyidi alınamadı!") }
+    }
+
+    private fun scheduleFirebaseCleanup(fireDocId: String) {
+        val request = OneTimeWorkRequestBuilder<AlertCleanupWorker>()
+            .setInitialDelay(45, TimeUnit.SECONDS)
+            .setInputData(workDataOf("KEY_FIREBASE_DOC_ID" to fireDocId))
+            .build()
+        workManager.enqueue(request)
     }
 }

@@ -36,7 +36,7 @@ class UploadWorker(appContext: Context, workerParams: WorkerParameters) :
                 val firestoreData = hashMapOf(
                     "original_message" to report.rawMessage,
                     "sender_endpoint_id" to report.senderId,
-                    "received_at" to report.receivedTimestamp,
+                    "received_at" to report.lastSeenTimestamp,
                     "source" to "OFFLINE_SYNC_BLUETOOTH"
                 )
 

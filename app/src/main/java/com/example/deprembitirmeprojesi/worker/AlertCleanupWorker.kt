@@ -16,38 +16,34 @@ class AlertCleanupWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
-        val recordId = inputData.getLong("KEY_RECORD_ID", -1L)
         val firebaseDocId = inputData.getString("KEY_FIREBASE_DOC_ID")
 
-        if (recordId == -1L || firebaseDocId.isNullOrBlank()) {
-            Log.e("CleanupWorker", "Record ID veya Firebase Doc ID gelmedi, işlem başarısız.")
+        if (firebaseDocId.isNullOrBlank()) {
+            Log.e("CleanupWorker", "Firebase Doc ID gelmedi, işlem iptal.")
             return Result.failure()
         }
 
         return try {
-            val dao = AppDatabase.getDatabase(applicationContext).earthquakeDao()
-            val record = dao.getRecordById(recordId)
-
-            if (record != null && record.status == Constants.STATUS_ANALYSING) {
-                // Önce lokal kaydı sil
-                dao.deleteRecordById(recordId)
-                Log.i("CleanupWorker", "$recordId ID'li lokal analiz kaydı silindi.")
-
-                // Sonra Firestore kaydını sil
-                Firebase.firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS)
-                    .document(firebaseDocId)
-                    .delete()
-                    .await()
-                Log.i("CleanupWorker", "$firebaseDocId ID'li Firestore kaydı silindi.")
-
-            } else {
-                Log.i("CleanupWorker", "$recordId ID'li kayıt ya bulunamadı ya da durumu DEPREM'e güncellenmiş.")
+            val firestore = Firebase.firestore
+            val docRef = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(firebaseDocId)
+            
+            val snapshot = docRef.get().await()
+            
+            if (snapshot.exists()) {
+                val status = snapshot.getString(Constants.FIELD_STATUS)
+                
+                if (status == Constants.STATUS_ANALYSING) {
+                    // Eğer 30-45 saniye geçmesine rağmen hala ANALYSING ise sil
+                    docRef.delete().await()
+                    Log.i("CleanupWorker", "Teyit alınamadı. $firebaseDocId ID'li ANALYSING kaydı Firebase'den temizlendi.")
+                } else {
+                    Log.i("CleanupWorker", "$firebaseDocId ID'li kayıt DEPREM olarak onaylandığı için silinmedi.")
+                }
             }
             
             Result.success()
         } catch (e: Exception) {
             Log.e("CleanupWorker", "Temizlik sırasında hata: ${e.message}")
-            // Hata durumunda tekrar dene
             Result.retry()
         }
     }

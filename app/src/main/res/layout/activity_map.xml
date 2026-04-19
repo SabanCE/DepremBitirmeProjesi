@@ -1,47 +1,180 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <fragment
-        android:id="@+id/mapFragment"
-        android:name="com.google.android.gms.maps.SupportMapFragment"
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent">
 
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_margin="16dp"
-        android:padding="12dp"
-        android:background="#CCFFFFFF"
-        android:elevation="4dp">
+        <fragment
+            android:id="@+id/mapFragment"
+            android:name="com.google.android.gms.maps.SupportMapFragment"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
 
+        <!-- Merkez Hedef Göstergesi (Alan Tarama İçin) -->
+        <ImageView
+            android:id="@+id/imgCenterTarget"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_mylocation"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:tint="#D32F2F" />
+
+        <!-- Üst Panel: İstatistik ve Filtreler -->
+        <LinearLayout
+            android:id="@+id/topPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#DDFFFFFF"
+            android:elevation="8dp"
+            android:orientation="vertical"
+            android:padding="8dp"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="📡 AFAD SAHA YÖNETİM PANELİ"
+                android:textColor="#D32F2F"
+                android:textStyle="bold" />
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:layout_marginTop="4dp">
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipGroupFilter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipAll"
+                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Hepsi"
+                        android:checked="true" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipCritical"
+                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Kritik"
+                        app:chipIconTint="#D32F2F" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipRecent"
+                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Son 10 Dakika" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipConnected"
+                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Bağlı Cihazlar" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipDisconnected"
+                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Bağlantı Kopuk" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipHelp"
+                        style="@style/Widget.MaterialComponents.Chip.Choice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Yardım İsteyenler" />
+
+                </com.google.android.material.chip.ChipGroup>
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/txtCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="Filtrelenen: 0 / Toplam: 0"
+                android:textSize="12sp"
+                android:textColor="#666" />
+        </LinearLayout>
+
+        <!-- Alan Tarama Bilgisi -->
         <TextView
+            android:id="@+id/txtAreaCount"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="📡 SAHA RADARI"
+            android:layout_margin="16dp"
+            android:background="#CC000000"
+            android:padding="12dp"
+            android:text="🎯 Alan Taraması: 0 Kişi"
+            android:textColor="#FFEB3B"
             android:textStyle="bold"
-            android:textColor="#D32F2F"
-            android:textSize="16sp"/>
+            app:layout_constraintTop_toBottomOf="@id/topPanel"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-        <TextView
-            android:id="@+id/txtCount"
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/btnBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Tespit Edilen: 0"
-            android:textColor="#333"
-            android:textSize="14sp"/>
-    </LinearLayout>
+            android:layout_margin="16dp"
+            android:src="@android:drawable/ic_menu_revert"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/btnBack"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|start"
-        android:layout_margin="24dp"
-        android:src="@android:drawable/ic_menu_revert"
-        android:contentDescription="Geri Dön" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
-</FrameLayout>
+    <!-- ÖNCELİKLİ KİŞİLER LİSTESİ (Bottom Sheet) -->
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/bottomSheet"
+        android:layout_width="match_parent"
+        android:layout_height="400dp"
+        android:background="@drawable/bottom_sheet_bg"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"
+        app:behavior_peekHeight="80dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <View
+                android:layout_width="40dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center"
+                android:background="#DDD"
+                android:layout_marginBottom="12dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⚠️ ÖNCELİKLİ MÜDAHALE LİSTESİ"
+                android:textStyle="bold"
+                android:textSize="16sp"
+                android:textColor="#D32F2F"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvPriority"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" />
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

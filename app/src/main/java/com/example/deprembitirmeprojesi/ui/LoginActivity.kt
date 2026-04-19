@@ -79,15 +79,27 @@ class LoginActivity : AppCompatActivity() {
     private fun checkUserRoleAndNavigate(userId: String) {
         firestore.collection(Constants.FIRESTORE_COLLECTION_USERS).document(userId).get()
             .addOnSuccessListener { document ->
-                val role = document.getString("role")
-                if (role == Constants.ROLE_PERSONNEL) {
-                    navigateToEmergencyActivity()
+                if (document.exists()) {
+                    val role = document.getString("role")
+
+                    // Debug için log ekleyelim (Logcat'ten kontrol edebilirsin)
+                    println("DEBUG_ROLE: Firestore'dan gelen rol: '$role', Beklenen: '${Constants.ROLE_PERSONNEL}'")
+
+                    // equals(..., ignoreCase = true) kullanarak büyük/küçük harf hatasını önleyelim
+                    if (role?.equals(Constants.ROLE_PERSONNEL, ignoreCase = true) == true) {
+                        navigateToEmergencyActivity()
+                    } else {
+                        navigateToMainActivity()
+                    }
                 } else {
+                    // Belge yoksa varsayılan olarak ana ekrana
+                    println("DEBUG_ROLE: Kullanıcı dokümanı Firestore'da bulunamadı!")
                     navigateToMainActivity()
                 }
             }
-            .addOnFailureListener {
-                // Rol alınamazsa varsayılan olarak ana ekrana yönlendir
+            .addOnFailureListener { exception ->
+                println("DEBUG_ROLE: Firestore hatası: ${exception.message}")
+                binding.loginButton.isEnabled = true // Butonu tekrar etkinleştir
                 navigateToMainActivity()
             }
     }
