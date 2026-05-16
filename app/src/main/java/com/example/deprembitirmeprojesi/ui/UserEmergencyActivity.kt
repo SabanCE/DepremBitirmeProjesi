@@ -23,15 +23,16 @@ import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityUserEmergencyBinding
 import com.example.deprembitirmeprojesi.mesh.MeshNetworkManager
 import com.example.deprembitirmeprojesi.nearby.NearbyManager
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.example.deprembitirmeprojesi.util.ThemeHelper
+import com.google.android.gms.location.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener {
+class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener, MeshNetworkManager.MeshMessageListener {
 
     private lateinit var binding: ActivityUserEmergencyBinding
     private lateinit var nearbyManager: NearbyManager
@@ -44,6 +45,9 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
     private var lastLocationStr: String = ""
 
     private val fusedLocationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private lateinit var locationCallback: LocationCallback
+    private val handler = Handler(Looper.getMainLooper())
+    
     private lateinit var auth: FirebaseAuth
     private lateinit var firestore: FirebaseFirestore
     private val database by lazy { AppDatabase.getDatabase(this) }
@@ -56,6 +60,7 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeHelper.applyTheme(this)
         super.onCreate(savedInstanceState)
         binding = ActivityUserEmergencyBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -67,17 +72,104 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         binding.listViewMessages.adapter = adapter
 
         nearbyManager = NearbyManager(this, this)
-        // MeshNetworkManager'ı başlatıyoruz
         meshManager = MeshNetworkManager.getInstance(this, nearbyManager)
+        meshManager.setMessageListener(this)
         
-        // BAŞLANGIÇ TEMİZLİĞİ: Herkes "KOPTU" başlasın
         meshManager.stopAll()
 
+        // 1. ÖNCE YEREL VERİTABANINDAN EN SON KONUMU ÇEK (HIZLI BAŞLANGIÇ İÇİN)
+        initializeLastKnownLocationFromDB()
+
+        setupLocationUpdates()
         setupClickListeners()
+        
         showInitialUI()
     }
 
+    private fun initializeLastKnownLocationFromDB() {
+        val userId = auth.currentUser?.uid ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val report = database.reportDao().getReportBySender(userId)
+            if (report != null && report.lastLocation.isNotEmpty()) {
+                lastLocationStr = report.lastLocation
+                Log.d(TAG, "Veritabanından son konum geri yüklendi: $lastLocationStr")
+            }
+        }
+    }
+
+    private fun setupLocationUpdates() {
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                for (location in locationResult.locations) {
+                    if (location != null) {
+                        val wasEmpty = lastLocationStr.isEmpty()
+                        lastLocationStr = "${location.latitude}, ${location.longitude}"
+                        Log.d(TAG, "Konum Güncellendi: $lastLocationStr")
+                        
+                        // Arkaplanda yerel veritabanını da güncelleyelim ki 
+                        // ilk bağlantıda en taze konum gitsin
+                        updateLocalReportLocation()
+
+                        // Eğer konum yeni geldiyse ve şebeke aktifse, sessizce güncelleme gönder
+                        if (wasEmpty && binding.statusTextView.text == "✅ BAĞLANTI KURULDU") {
+                            sendEmergencyMessage("KONUM_GUNCELLE")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateLocalReportLocation() {
+        val userId = auth.currentUser?.uid ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val report = database.reportDao().getReportBySender(userId)
+            if (report != null && report.lastLocation != lastLocationStr) {
+                report.lastLocation = lastLocationStr
+                report.lastSeenTimestamp = System.currentTimeMillis()
+                database.reportDao().upsertReport(report)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLocationUpdates() {
+        if (!hasAllPermissions()) return
+        
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
+            .setMinUpdateIntervalMillis(5000)
+            .build()
+            
+        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+        
+        // Hemen son bilinen konumu da alalım
+        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+            if (location != null) {
+                lastLocationStr = "${location.latitude}, ${location.longitude}"
+                updateLocalReportLocation()
+            }
+        }
+        
+        // PERİYODİK DURUM GÜNCELLEMESİ (Batarya ve Konum için)
+        startPeriodicStatusUpdate()
+    }
+
+    private fun startPeriodicStatusUpdate() {
+        handler.removeCallbacks(statusUpdateRunnable)
+        handler.postDelayed(statusUpdateRunnable, 60000) // Her 60 saniyede bir
+    }
+
+    private val statusUpdateRunnable = object : Runnable {
+        override fun run() {
+            if (binding.statusTextView.text == "✅ BAĞLANTI KURULDU") {
+                sendEmergencyMessage("DURUM_GUNCELLE")
+            }
+            handler.postDelayed(this, 60000)
+        }
+    }
+
     private fun setupClickListeners() {
+        binding.btnBack.setOnClickListener { finish() }
         binding.btnStartAdvertising.setOnClickListener { startRelayMode() }
         binding.btnReset.setOnClickListener { resetAll() }
 
@@ -126,19 +218,29 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         val userId = auth.currentUser?.uid ?: "anon_${UUID.randomUUID().toString().take(4)}"
         
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            // 1. Önce mevcut raporu çek (Versiyonu kaybetmemek için)
+            // 1. Önce mevcut raporu çek (Versiyonu ve ESKİ KONUMU kaybetmemek için)
             var report = database.reportDao().getReportBySender(userId)
             
             val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
             val batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            val batteryStr = "%$batteryLevel"
+
+            // KONUM KORUMA MANTIĞI:
+            val locationToUse = if (lastLocationStr.isNotEmpty()) {
+                lastLocationStr
+            } else if (report != null && report.lastLocation.isNotEmpty()) {
+                report.lastLocation
+            } else {
+                "" 
+            }
 
             if (report == null) {
                 report = DisasterReport(
                     senderId = userId,
                     rawMessage = message,
                     userProfile = currentProfile?.fullName ?: "Bilinmeyen Kullanıcı",
-                    batteryLevel = "%$batteryLevel",
-                    lastLocation = lastLocationStr,
+                    batteryLevel = batteryStr,
+                    lastLocation = locationToUse,
                     bloodType = currentProfile?.bloodType ?: "",
                     chronicIllness = currentProfile?.chronicIllness ?: "",
                     regularMedication = currentProfile?.regularMedication ?: "",
@@ -154,20 +256,62 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
             } else {
                 // 2. Mevcut raporu güncelle
                 report.rawMessage = message
-                report.lastLocation = lastLocationStr
-                report.batteryLevel = "%$batteryLevel"
+                if (locationToUse.isNotEmpty()) {
+                    report.lastLocation = locationToUse
+                }
+                report.batteryLevel = batteryStr
                 report.lastSeenTimestamp = System.currentTimeMillis()
                 report.isConnected = true
-                // Versiyonu burada artırıyoruz ki ağdaki diğer cihazlar güncellemeyi kabul etsin
-                report.version++
+                report.version++ // Versiyonu burada da artıralım ki her mesaj yeni bir paket olsun
+                
+                // Profil bilgilerini güncelle
+                currentProfile?.let {
+                    if (it.fullName.isNotEmpty()) report.userProfile = it.fullName
+                    if (it.bloodType.isNotEmpty()) report.bloodType = it.bloodType
+                    if (it.chronicIllness.isNotEmpty()) report.chronicIllness = it.chronicIllness
+                    if (it.regularMedication.isNotEmpty()) report.regularMedication = it.regularMedication
+                    if (it.birthDate.isNotEmpty()) report.birthDate = it.birthDate
+                    if (it.apartmentInfo.isNotEmpty()) report.apartmentInfo = it.apartmentInfo
+                    if (it.floorInfo.isNotEmpty()) report.floorInfo = it.floorInfo
+                }
             }
 
             // 3. Mesh Sistemi üzerinden gönder
             meshManager.updateAndBroadcastStatus(report)
             
-            runOnUiThread {
-                addLog("📤 GÖNDERİLDİ: $message")
+            if (message != "KONUM_GUNCELLE") {
+                runOnUiThread {
+                    addLog("📤 GÖNDERİLDİ: $message")
+                }
             }
+        }
+    }
+
+    override fun onMessageReceived(userName: String, message: String) {
+        if (userName == "AFAD" || userName.startsWith("AFAD_OZEL_MESAJ")) {
+            // Özel mesaj kontrolü (Eğer bu mesaj bana geldiyse)
+            lifecycleScope.launch {
+                val myId = auth.currentUser?.uid ?: return@launch
+                val db = com.example.deprembitirmeprojesi.data.AppDatabase.getDatabase(this@UserEmergencyActivity)
+                val report = db.reportDao().getReportBySender("AFAD_OZEL_MESAJ")
+                
+                if (report != null && report.assignedToAfadId == myId) {
+                    addLog("📩 ÖZEL MESAJ: ${report.rawMessage.removePrefix("BİLGİ: (Size Özel)")}")
+                    runOnUiThread {
+                        binding.afadMessageCard.visibility = View.VISIBLE
+                        binding.lastAfadMessage.text = "ÖZEL: ${report.rawMessage.removePrefix("BİLGİ: (Size Özel)")}"
+                    }
+                } else {
+                    // Genel AFAD yayını
+                    addLog("📢 AFAD: $message")
+                    runOnUiThread {
+                        binding.afadMessageCard.visibility = View.VISIBLE
+                        binding.lastAfadMessage.text = message
+                    }
+                }
+            }
+        } else {
+            addLog("🆘 SOS ($userName): $message")
         }
     }
 
@@ -188,9 +332,12 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
                             "CLAIMED" -> "🚑 Ekip Yolda!"
                             "RESCUING" -> "👷 Müdahale Ediliyor!"
                             "RESCUED" -> "✅ Kurtarıldınız!"
-                            else -> "⏳ Yardım Bekleniyor"
+                            else -> null
                         }
-                        binding.lastAfadMessage.text = "DURUM GÜNCELLEMESİ: $statusLabel"
+                        // Sadece durum değişmişse ve bir mesaj yoksa durum bilgisini yaz
+                        if (statusLabel != null && (binding.lastAfadMessage.text == "..." || binding.lastAfadMessage.text.toString().startsWith("🚑") || binding.lastAfadMessage.text.toString().startsWith("👷"))) {
+                            binding.lastAfadMessage.text = "DURUM GÜNCELLEMESİ: $statusLabel"
+                        }
                     }
                 }
             }
@@ -243,36 +390,33 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
         }
         updateMainStatus("🔍 HAZIRLANIYOR...", android.R.color.holo_blue_light)
         
-        // Profili ve konumu alıp başlat
+        // Konum servislerini başlat
+        startLocationUpdates()
+        
+        // Profili alıp başlat
         val userId = auth.currentUser?.uid
         if (userId != null) {
             firestore.collection("users").document(userId).get()
                 .addOnSuccessListener {
                     currentProfile = it.toObject(UserProfile::class.java)
-                    updateLocationAndStart()
+                    startMeshDiscovery()
                 }
-                .addOnFailureListener { updateLocationAndStart() }
+                .addOnFailureListener { startMeshDiscovery() }
         } else {
-            updateLocationAndStart()
+            startMeshDiscovery()
         }
+    }
+
+    private fun startMeshDiscovery() {
+        val userId = auth.currentUser?.uid ?: "anon_${UUID.randomUUID().toString().take(4)}"
+        val displayName = currentProfile?.fullName ?: "Depremzede"
+        nearbyManager.startHybridMode(displayName, userId)
+        showMessagingUI()
     }
 
     @SuppressLint("MissingPermission")
     private fun updateLocationAndStart() {
-        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            .addOnSuccessListener { location: Location? ->
-                // KONUM FİLTRESİ: Eğer koordinatlar (0.0, 0.0) veya emülatörün varsayılanı (37.422...) ise gerçek konum gelene kadar boş bırak
-                lastLocationStr = if (location != null && !isDefaultEmulatorLocation(location)) {
-                    "${location.latitude}, ${location.longitude}"
-                } else {
-                    "" 
-                }
-                
-                val userId = auth.currentUser?.uid ?: "anon_${UUID.randomUUID().toString().take(4)}"
-                val displayName = currentProfile?.fullName ?: "Depremzede"
-                nearbyManager.startHybridMode(displayName, userId)
-                showMessagingUI()
-            }
+        // Bu metod artık startRelayMode ve startMeshDiscovery içine bölündü
     }
 
     private fun isDefaultEmulatorLocation(loc: Location): Boolean {
@@ -343,6 +487,7 @@ class UserEmergencyActivity : AppCompatActivity(), NearbyManager.NearbyListener 
     override fun onDestroy() {
         super.onDestroy()
         nearbyManager.stopAll()
+        fusedLocationClient.removeLocationUpdates(locationCallback)
         toneGenerator?.release()
     }
 }

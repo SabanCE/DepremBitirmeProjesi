@@ -44,6 +44,12 @@
 
     <queries>
         <package android:name="com.google.android.gms" />
+        <intent>
+            <action android:name="com.google.android.gms.nearby.connection.SERVICE_BIND" />
+        </intent>
+        <intent>
+            <action android:name="com.google.android.gms.location.settings.GOOGLE_LOCATION_SETTINGS" />
+        </intent>
     </queries>
 
     <application
@@ -64,6 +70,10 @@
         <activity
             android:name=".ui.MapActivity"
             android:exported="false" />
+        <activity
+            android:name=".ui.ForgotPasswordActivity"
+            android:exported="false"
+            android:label="Şifremi Unuttum" />
         <activity
             android:name=".ui.RegisterActivity"
             android:exported="false" />
@@ -91,12 +101,27 @@
         <activity
             android:name=".ui.ProfileActivity"
             android:label="Profil" />
+        <activity
+            android:name=".ui.AssistantActivity"
+            android:label="AI Asistanı" />
+        <activity
+            android:name=".ui.AssemblyMapActivity"
+            android:label="Güvenli Rota"
+            android:exported="false" />
+        <activity
+            android:name=".ui.TeamLeaderActivity"
+            android:label="Yönetim Paneli (Müdür)"
+            android:exported="false" />
+        <activity
+            android:name=".ui.PersonnelActionActivity"
+            android:label="Saha Koordinasyonu"
+            android:exported="false" />
 
         <service
             android:name=".service.EarthquakeService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|specialUse|location">
+            android:foregroundServiceType="specialUse|location|connectedDevice">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Earthquake detection and emergency alerting system using sensors and nearby communication" />

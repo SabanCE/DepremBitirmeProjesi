@@ -24,7 +24,7 @@ class NearbyManager(private val context: Context, private val listener: NearbyLi
         fun onConnectionFailed(endpointId: String)
     }
 
-    private val connectionsClient = Nearby.getConnectionsClient(context)
+    private val connectionsClient = Nearby.getConnectionsClient(context.applicationContext)
     private val serviceId = context.packageName
     private val strategy = Strategy.P2P_CLUSTER 
     
@@ -171,13 +171,17 @@ class NearbyManager(private val context: Context, private val listener: NearbyLi
     }
 
     fun sendData(endpointId: String, message: String) {
+        android.util.Log.d("NearbyManager", "Sending data to $endpointId: ${message.take(50)}...")
         connectionsClient.sendPayload(endpointId, Payload.fromBytes(message.toByteArray(StandardCharsets.UTF_8)))
     }
 
     fun broadcastData(message: String) {
         val targets = activeEndpoints.keys.toList()
         if (targets.isNotEmpty()) {
+            android.util.Log.d("NearbyManager", "Broadcasting to ${targets.size} devices: ${message.take(50)}...")
             connectionsClient.sendPayload(targets, Payload.fromBytes(message.toByteArray(StandardCharsets.UTF_8)))
+        } else {
+            android.util.Log.w("NearbyManager", "Broadcast skipped: No active connections!")
         }
     }
 

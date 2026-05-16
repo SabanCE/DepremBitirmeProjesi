@@ -1,34 +1,40 @@
 package com.example.deprembitirmeprojesi.service
 
 import android.app.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
+import com.example.deprembitirmeprojesi.R
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.example.deprembitirmeprojesi.logic.EarthquakeDetector
 import com.example.deprembitirmeprojesi.logic.SignalProcessor
 import com.example.deprembitirmeprojesi.logic.WaveDetector
 import com.example.deprembitirmeprojesi.nearby.NearbyManager
 import com.example.deprembitirmeprojesi.util.Constants
 import com.example.deprembitirmeprojesi.util.NotificationHelper
 import com.example.deprembitirmeprojesi.worker.AlertCleanupWorker
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.google.android.gms.location.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import java.util.*
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -36,372 +42,394 @@ class EarthquakeService : Service(), SensorEventListener, NearbyManager.NearbyLi
 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
+    private var gyroscope: Sensor? = null
+    
     private var nearbyManager: NearbyManager? = null
     private lateinit var notificationHelper: NotificationHelper
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     
-    private val signalProcessor = SignalProcessor()
-    private val waveDetector = WaveDetector(signalProcessor)
-    private val firestore = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
-    private lateinit var fusedLocationClient: com.google.android.gms.location.FusedLocationProviderClient
-    private var confirmationListener: ListenerRegistration? = null
+    private val signalProcessor by lazy { SignalProcessor() }
+    private val waveDetector by lazy { WaveDetector(signalProcessor) }
+    private val detector by lazy { EarthquakeDetector(this, signalProcessor) }
+    
+    private val firestore by lazy { FirebaseFirestore.getInstance() }
+    private val auth by lazy { FirebaseAuth.getInstance() }
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
 
     private var isHighPrecisionActive = false
     private val accelBuffer = mutableListOf<Float>()
-    private val WINDOW_SIZE = 100 // ~0.5 - 1 saniyelik veri
-    private var pWaveDetected = false // EKLENDİ
+    private val gyroBuffer = mutableListOf<Float>()
+    private val WINDOW_SIZE = 300 // ~6 saniyelik pencere
     
-    private var initialGravity: FloatArray? = null
-    private var highEnergyStartTime = 0L // Sarsıntının başladığı an
-    private val REQUIRED_STRIKE_TIME_MS = 1500L // En az 1.5 saniye sürmeli
-    
+    private var pWaveDetected = false
+    private var activeAxesCount = 0
     private var highPrecisionStartTime = 0L
     private var lastTriggerTime = 0L
     private var lastFirebaseSendTime = 0L
     private var lastCancelTime = 0L 
-    private var isFirebaseSent = false // Bu döngüde veri gönderildi mi?
-    private val COOLDOWN_MS = 60000L      
+    private var isFirebaseSent = false 
+    private var currentActiveDocId: String? = null
+    private val COOLDOWN_MS = 15000L // 15 saniye (Eski: 45s)
+
+    private var isForeground = false
+    private var lastLocation: Location? = null
+
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || 
+                            status == BatteryManager.BATTERY_STATUS_FULL
+            detector.updateChargingStatus(isCharging)
+        }
+    }
+
+    private lateinit var locationCallback: LocationCallback
 
     override fun onCreate() {
+        ensureForegroundStatus()
         super.onCreate()
         acquireWakeLock()
+        
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        nearbyManager = NearbyManager(this, this)
-        notificationHelper = NotificationHelper(this)
-        // Arka plan stabilitesi için applicationContext kullanıyoruz
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(applicationContext)
+        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         
-        startForegroundService()
+        try {
+            nearbyManager = NearbyManager(this, this)
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(applicationContext)
+            setupLocationUpdates()
+        } catch (e: Exception) {
+            Log.e("QuakeService", "GMS Client hatası: ${e.message}")
+        }
+        
+        notificationHelper = NotificationHelper(this)
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(batteryReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(batteryReceiver, filter)
+        }
         startLowPowerListening()
+    }
+
+    private fun setupLocationUpdates() {
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
+            .setMinUpdateIntervalMillis(3000)
+            .build()
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                locationResult.lastLocation?.let { location ->
+                    lastLocation = location
+                    val speedKmh = location.speed * 3.6f
+                    detector.updateVehicleStatus(speedKmh, false)
+                }
+            }
+        }
+        
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+        }
     }
 
     private fun acquireWakeLock() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EarthquakeService::WakeLock")
-        wakeLock?.acquire()
+        wakeLock?.acquire(10 * 60 * 1000L)
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
-
-    private fun startForegroundService() {
-        val channelId = "earthquake_service_channel"
+    private fun ensureForegroundStatus() {
+        val channelId = "earthquake_service_channel_v3"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Deprem Takip Servisi", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (manager.getNotificationChannel(channelId) == null) {
+                val channel = NotificationChannel(channelId, "Deprem Koruma Sistemi", NotificationManager.IMPORTANCE_LOW)
+                manager.createNotificationChannel(channel)
+            }
         }
+
         val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Deprem Takibi Aktif")
-            .setContentText("Cihaz sarsıntılara karşı korunuyor.")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Deprem Koruma Sistemi Aktif")
+            .setContentText("Sensörler ve bölgesel veri analizi devrede.")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setOngoing(true)
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val hasFineLocation = androidx.core.content.ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.ACCESS_FINE_LOCATION
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            val hasCoarseLocation = androidx.core.content.ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-
-            if (hasFineLocation || hasCoarseLocation) {
-                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            }
-
-            try {
-                startForeground(1, notification, types)
-            } catch (e: Exception) {
-                Log.e("QuakeService", "startForeground error: ${e.message}")
-                // Fallback: Try without location if permission/state issue
-                try {
-                    startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-                } catch (e2: Exception) {
-                    startForeground(1, notification)
-                }
-            }
+            startForeground(888, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or 
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         } else {
-            startForeground(1, notification)
+            startForeground(888, notification)
         }
+        isForeground = true
     }
 
     private fun startLowPowerListening() {
-        // NORMAL yerine UI kullanarak arka planda daha stabil çalışmasını sağlıyoruz
+        // Hızı SENSOR_DELAY_UI seviyesine çekiyoruz, NORMAL deprem sarsıntıları için çok yavaş kalabiliyor.
         sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI)
-        Log.d("QuakeService", "Düşük güç modunda sensör dinleme başlatıldı.")
     }
 
-    private var lastLogTime = 0L
     override fun onSensorChanged(event: SensorEvent?) {
         event ?: return
-        if (event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
+        when(event.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> handleAccelerometer(event)
+            Sensor.TYPE_GYROSCOPE -> handleGyroscope(event)
+        }
+    }
 
+    private fun handleAccelerometer(event: SensorEvent) {
         val linearAccel = signalProcessor.removeGravity(event.values)
-        val magnitude = sqrt(linearAccel[0].pow(2) + linearAccel[1].pow(2) + linearAccel[2].pow(2))
+        val magnitude = signalProcessor.calculateMagnitude(linearAccel)
         val staltaRatio = signalProcessor.calculateSTALTA(magnitude)
 
         val currentTime = System.currentTimeMillis()
-        
-        // İptal sonrası 3 saniye bekle
-        if (currentTime - lastCancelTime < 3000) return
-
-        if (currentTime - lastTriggerTime < COOLDOWN_MS) return
+        // KİLİT: İptalden sonra 5 saniye, tetiklemeden sonra 15 saniye bekler.
+        if (currentTime - lastCancelTime < 5000 || currentTime - lastTriggerTime < COOLDOWN_MS) return
 
         if (!isHighPrecisionActive) {
-            // ARTIK SADECE MAGNITUDE DEĞİL, STA/LTA ORANINA BAKIYORUZ
-            // Oran > 4.0 demek, sarsıntı ortam gürültüsünün 4 katı demek.
-            if (staltaRatio > 4.0f && magnitude > 2.0f) { 
-                Log.d("QuakeService", "Sismik Tetiklenme! Oran: $staltaRatio, Mag: $magnitude")
-                initialGravity = event.values.clone()
-                triggerHighPrecision(magnitude)
+            // TEST EDİLEBİLİR VE GÜVENLİ EŞİK: Enerji Oranı 4.0 ve Genlik 1.5
+            if (staltaRatio > 4.0f && magnitude > 1.5f) {
+                triggerHighPrecision()
             }
         } else {
-            // Sliding Window: Eski verileri at, yeniyi ekle
             if (accelBuffer.size >= WINDOW_SIZE) accelBuffer.removeAt(0)
             accelBuffer.add(magnitude)
             
-            // Yön Değişimi Kontrolü
-            initialGravity?.let { initial ->
-                val current = event.values
-                val diff = sqrt((current[0]-initial[0]).pow(2) + (current[1]-initial[1]).pow(2) + (current[2]-initial[2]).pow(2))
+            activeAxesCount = 0
+            if (abs(linearAccel[0]) > 0.2f) activeAxesCount++
+            if (abs(linearAccel[1]) > 0.2f) activeAxesCount++
+            if (abs(linearAccel[2]) > 0.2f) activeAxesCount++
+
+            analyzeDetailedPattern(currentTime)
+
+            // Gürültü Kontrolü: Sarsıntı çok çabuk sönerse iptal et (Eşiği 0.2'ye çektik)
+            if (accelBuffer.size > 40 && accelBuffer.takeLast(15).average() < 0.2) {
+                lastCancelTime = currentTime
+                stopHighPrecision()
+            }
+
+            if (currentTime - highPrecisionStartTime > 20000) {
+                lastCancelTime = currentTime
+                stopHighPrecision()
+            }
+        }
+    }
+
+    private fun handleGyroscope(event: SensorEvent) {
+        if (!isHighPrecisionActive) return
+        val rotationMag = sqrt(event.values[0].pow(2) + event.values[1].pow(2) + event.values[2].pow(2))
+        if (gyroBuffer.size >= WINDOW_SIZE) gyroBuffer.removeAt(0)
+        gyroBuffer.add(rotationMag)
+        
+        // HASSASİYET ARTIRILDI: El sallama sırasında rotasyon 15.0'e kadar çıkabilir (Eski: 25.0)
+        if (gyroBuffer.size > 20 && rotationMag > 15.0f) {
+             Log.d("QuakeService", "Parazit Filtresi: Aşırı rotasyon ($rotationMag), iptal.")
+             lastCancelTime = System.currentTimeMillis()
+             stopHighPrecision()
+        }
+    }
+
+    private fun analyzeDetailedPattern(now: Long) {
+        val lastMag = if (accelBuffer.isNotEmpty()) accelBuffer.last() else 0f
+
+        // 1. FIREBASE GÖNDERİMİ HIZLANDIRILDI (400ms -> 300ms)
+        if (!isFirebaseSent && (now - highPrecisionStartTime) > 300) {
+            isFirebaseSent = true
+            // Başlangıç skoru
+            val initialConfidence = (lastMag / 5.0f).coerceIn(0.1f, 0.6f)
+            Log.d("QuakeService", "Firebase'e ANALYSING durumu fırlatılıyor. Skor: $initialConfidence")
+            processAndSendFirebase(lastMag, initialConfidence)
+        }
+
+        if (accelBuffer.size < 40) return 
+        
+        // KRİTİK: Ritmik hareket saptandığında servisi DURDURMUYORUZ.
+        // Sadece log basıyoruz, kararı checkConsensusAndScore içindeki dedektöre bırakıyoruz.
+        if (signalProcessor.isRhythmic(accelBuffer)) {
+            Log.d("QuakeService", "Bilgi: Hareket ritmik saptandı (Muhtemel test veya yürüme).")
+        }
+        
+        // 2. KONSENSÜS KONTROLÜ
+        if (accelBuffer.size % 10 == 0) {
+            checkConsensusAndScore(now)
+        }
+    }
+
+    private fun checkConsensusAndScore(now: Long) {
+        val timeLimit = now - 45000L // 45 saniyelik pencere
+        val currentLoc = lastLocation 
+        
+        val androidId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        val baseUid = auth.currentUser?.uid ?: "anon"
+        val myUserId = "${baseUid}_$androidId"
+
+        firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS)
+            .whereGreaterThan(Constants.FIELD_TIMESTAMP, timeLimit)
+            .get()
+            .addOnSuccessListener { docs ->
+                val uniqueUsers = mutableSetOf<String>()
                 
-                // Eğer cihaz sarsıntı anında çok fazla döndürülüyorsa (diff > 8.0) İPTAL ET
-                if (diff > 8.0f) { 
-                    Log.d("QuakeService", "İptal: Cihaz kontrolsüz hareket ediyor (İnsan/Araç hareketi)")
-                    lastCancelTime = currentTime
-                    stopHighPrecision()
-                    return
+                for (doc in docs) {
+                    val userId = doc.getString(Constants.FIELD_USER_ID) ?: ""
+                    val status = doc.getString(Constants.FIELD_STATUS) ?: ""
+                    val lat = doc.getDouble(Constants.FIELD_LATITUDE) ?: 0.0
+                    val lng = doc.getDouble(Constants.FIELD_LONGITUDE) ?: 0.0
+                    
+                    // Kendi döküman ID'mizi dökümandan güncelleyelim (Henüz callback dönmediyse)
+                    if (userId == myUserId) {
+                        currentActiveDocId = doc.id
+                    }
+
+                    // KONUM TOLERANSI: Eğer konum yoksa (0,0) test için yakın sayalım.
+                    val isNear = if (currentLoc == null || (lat == 0.0 && lng == 0.0)) {
+                        true 
+                    } else {
+                        val results = FloatArray(1)
+                        Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, lat, lng, results)
+                        results[0] < 5000 // 5km
+                    }
+
+                    // Sadece analiz edilen veya yeni onaylanan yakındaki farklı cihazları say
+                    if (isNear && userId != myUserId && 
+                        (status == Constants.STATUS_ANALYSING || status == Constants.STATUS_EARTHQUAKE)) {
+                        uniqueUsers.add(userId)
+                    }
+                }
+
+                val nearbyDeviceCount = uniqueUsers.size
+                val hasConsensus = nearbyDeviceCount >= 1 // Ben + en az 1 başka cihaz
+
+                val score = detector.calculateConfidence(accelBuffer, gyroBuffer, activeAxesCount, nearbyDeviceCount, false)
+
+                Log.d("QuakeService", "Konsensüs Sorgusu: ${uniqueUsers.size} adet yakın sarsıntı bulundu.")
+
+                // KRİTİK: Eğer en az 1 kişi daha sallanıyorsa skor ne olursa olsun DEPREM'i onayla
+                if (score >= 70 || (hasConsensus && accelBuffer.size >= 10)) {
+                    Log.d("QuakeService", "!!! DEPREM ONAYLANDI (Konsensüs Sağlandı) !!!")
+                    confirmEarthquake(score.coerceAtLeast(70), nearbyDeviceCount + 1)
                 }
             }
-
-            analyzeWavePattern(currentTime)
-
-            // 10 saniye boyunca gerçek deprem bulunamazsa analizi durdur
-            if (currentTime - highPrecisionStartTime > 10000) {
-                stopHighPrecision()
-            }
-        }
     }
 
-    private fun analyzeWavePattern(now: Long) {
-        if (accelBuffer.size < 50) return
+    private fun confirmEarthquake(score: Int, totalAffected: Int) {
+        notificationHelper.sendConfirmedNotification(score.toFloat() / 10f, totalAffected)
+        sendNearbyAlert()
         
-        val lastMag = accelBuffer.lastOrNull() ?: 0f
-        val staltaRatio = signalProcessor.calculateSTALTA(lastMag)
-
-        val pConfidence = waveDetector.detectPWave(accelBuffer, staltaRatio)
-        val sConfidence = waveDetector.detectSWave(accelBuffer, staltaRatio, pWaveDetected)
-
-        // P-Wave yakalama
-        if (pConfidence > 0.60f && !pWaveDetected) {
-            pWaveDetected = true
-            Log.d("QuakeService", "P-Wave (Öncü Sarsıntı) Onaylandı!")
-        }
-        
-        // SARSINTI DOĞRULAMA ADIMI 1: Analiz başladıktan 500ms sonra hala stabilsek "ANALYSING" gönder
-        val durationSinceStart = now - highPrecisionStartTime
-        if (!isFirebaseSent && durationSinceStart > 500) {
-            val currentMag = accelBuffer.lastOrNull() ?: 0f
-            Log.d("QuakeService", "Sarsıntı stabil devam ediyor, Firebase'e bildiriliyor...")
-            processAndSendFirebase(currentMag, 0.5f)
-            notificationHelper.sendNotification(currentMag.toDouble())
-            isFirebaseSent = true
+        currentActiveDocId?.let { docId ->
+            firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(docId)
+                .update(
+                    Constants.FIELD_STATUS, Constants.STATUS_EARTHQUAKE,
+                    Constants.FIELD_NEARBY_DEVICES, totalAffected,
+                    Constants.FIELD_RISK_SCORE, score
+                ).addOnFailureListener { e ->
+                    Log.e("QuakeService", "Deprem Onay Hatası (Yazma Yetkisi?): ${e.message}")
+                }
         }
 
-        if (sConfidence > 0.5f) {
-            if (highEnergyStartTime == 0L) highEnergyStartTime = now
-            
-            val totalDuration = now - highEnergyStartTime
-            if (totalDuration >= REQUIRED_STRIKE_TIME_MS) {
-                val finalConfidence = if (pWaveDetected) 0.90f else 0.60f
-                Log.d("QuakeService", "🚨 SARSINTI KESİNLEŞTİ: Skoru: $finalConfidence")
-                
-                // S-Dalgası onayı ile durumu güncelle (Burada processAndSend zaten Firebase'e atacak)
-                processAndSendFirebase(sConfidence * 10f, finalConfidence)
-                sendNearbyAlert()
-                lastTriggerTime = now
-                stopHighPrecision()
-            }
-        } else {
-            highEnergyStartTime = 0L 
-        }
+        stopHighPrecision()
+        lastTriggerTime = System.currentTimeMillis()
     }
 
-    private fun triggerHighPrecision(initialMagnitude: Float) {
+    private fun triggerHighPrecision() {
         isHighPrecisionActive = true
-        isFirebaseSent = false // Yeni analiz başladı
+        isFirebaseSent = false 
+        currentActiveDocId = null
         highPrecisionStartTime = System.currentTimeMillis()
-        highEnergyStartTime = 0L
         accelBuffer.clear()
-        
-        // Buradan Firebase gönderimini kaldırdık, analyzeWavePattern içinde doğrulanınca gidecek
-        
+        gyroBuffer.clear()
         sensorManager.unregisterListener(this)
-        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME) 
+        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME)
     }
 
     private fun stopHighPrecision() {
         isHighPrecisionActive = false
         isFirebaseSent = false 
         pWaveDetected = false
-        highEnergyStartTime = 0L
+        currentActiveDocId = null // Aktif dökümanı sıfırla
         accelBuffer.clear()
+        gyroBuffer.clear()
         sensorManager.unregisterListener(this)
         startLowPowerListening()
     }
 
-    @android.annotation.SuppressLint("MissingPermission")
     private fun processAndSendFirebase(magnitude: Float, confidence: Float) {
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastFirebaseSendTime < 10000L) return 
-        lastFirebaseSendTime = currentTime
-
-        try {
-            // ÖNCE: Son bilinen konumu kontrol et (Hızlı ve Güvenli)
-            fusedLocationClient.lastLocation.addOnSuccessListener { lastLoc ->
-                if (lastLoc != null && (currentTime - lastLoc.time) < 60000) {
-                    // Son 1 dakika içindeyse bunu kullan
-                    sendToFirebase(magnitude, confidence, lastLoc)
-                } else {
-                    // Konum eski veya yoksa güncel olanı iste
-                    fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                        .addOnSuccessListener { loc -> sendToFirebase(magnitude, confidence, loc) }
-                        .addOnFailureListener { e -> 
-                            Log.e("QuakeService", "Konum hatası (Current): ${e.message}")
-                            sendToFirebase(magnitude, confidence, null) 
-                        }
-                }
-            }.addOnFailureListener { e ->
-                Log.e("QuakeService", "Konum hatası (Last): ${e.message}")
-                sendToFirebase(magnitude, confidence, null)
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                sendToFirebase(magnitude, confidence, loc ?: lastLocation)
             }
-        } catch (e: Exception) {
-            Log.e("QuakeService", "Location Client Kritik Hata: ${e.message}")
-            sendToFirebase(magnitude, confidence, null)
+        } else {
+            sendToFirebase(magnitude, confidence, lastLocation)
         }
     }
 
     private fun sendToFirebase(magnitude: Float, confidence: Float, location: Location?) {
-        val user = auth.currentUser
-        val myId = user?.uid ?: Constants.DUMMY_USER_ID
-        
-        // ÖNEMLİ: Uygulama kapalıyken Firestore persistence (kalıcılık) kullanır.
-        // Verinin gittiğinden emin olmak için döküman referansını alıp doğrudan yazıyoruz.
+        // TEST VE ANONİM KULLANICI FİX: Aynı hesapla girilse bile cihazları ayırmak için androidId ekliyoruz.
+        val androidId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        val baseUid = auth.currentUser?.uid ?: "anon"
+        val userId = "${baseUid}_$androidId"
+
         val alertData = hashMapOf(
-            Constants.FIELD_USER_ID to myId,
+            Constants.FIELD_USER_ID to userId,
             Constants.FIELD_MAGNITUDE to magnitude,
             Constants.FIELD_RISK_SCORE to confidence,
             Constants.FIELD_LATITUDE to (location?.latitude ?: 0.0),
             Constants.FIELD_LONGITUDE to (location?.longitude ?: 0.0),
             Constants.FIELD_TIMESTAMP to System.currentTimeMillis(),
-            Constants.FIELD_STATUS to Constants.STATUS_ANALYSING,
-            Constants.FIELD_NEARBY_DEVICES to 0
+            Constants.FIELD_STATUS to Constants.STATUS_ANALYSING
         )
 
-        val collection = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS)
-        collection.add(alertData)
-            .addOnSuccessListener { docRef ->
-                Log.d("QuakeService", "Firebase Verisi Gönderildi (ANALYSING): ${docRef.id}")
-                scheduleFirebaseCleanup(docRef.id)
-                listenForConfirmation(docRef.id)
-                checkForNearbyAlerts(location?.latitude ?: 0.0, location?.longitude ?: 0.0, myId, docRef.id)
-            }
-            .addOnFailureListener { e ->
-                Log.e("QuakeService", "Firebase Hatası: ${e.message}")
+        firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).add(alertData)
+            .addOnSuccessListener { doc ->
+                currentActiveDocId = doc.id
+                scheduleFirebaseCleanup(doc.id)
             }
     }
 
     private fun scheduleFirebaseCleanup(fireDocId: String) {
         val request = OneTimeWorkRequestBuilder<AlertCleanupWorker>()
-            .setInitialDelay(25, TimeUnit.SECONDS)
+            .setInitialDelay(50, TimeUnit.SECONDS)
             .setInputData(workDataOf("KEY_FIREBASE_DOC_ID" to fireDocId))
             .build()
         WorkManager.getInstance(this).enqueue(request)
     }
 
-    private fun checkForNearbyAlerts(myLat: Double, myLng: Double, myId: String, myDocId: String) {
-        val timeLimit = System.currentTimeMillis() - 30000L // Pencereyi 30 saniyeye çıkardık
-        firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS)
-            .whereGreaterThan(Constants.FIELD_TIMESTAMP, timeLimit)
-            .get()
-            .addOnSuccessListener { documents ->
-                val nearbyDocs = mutableListOf<String>()
-                
-                for (doc in documents) {
-                    // Aynı döküman olmasın yeter
-                    if (doc.id != myDocId) {
-                        val lat = doc.getDouble(Constants.FIELD_LATITUDE) ?: 0.0
-                        val lng = doc.getDouble(Constants.FIELD_LONGITUDE) ?: 0.0
-                        val results = FloatArray(1)
-                        Location.distanceBetween(myLat, myLng, lat, lng, results)
-                        
-                        if (results[0] < Constants.DISTANCE_THRESHOLD_METERS) {
-                            nearbyDocs.add(doc.id)
-                        }
-                    }
-                }
-
-                Log.d("QuakeService", "Konsensüs Kontrolü: ${nearbyDocs.size} yakın cihaz bulundu.")
-
-                if (nearbyDocs.isNotEmpty()) { 
-                    val batch = firestore.batch()
-                    val totalAffected = nearbyDocs.size + 1 // Kendisi + Yakındakiler
-                    
-                    // KENDİ DURUMUMU GÜNCELLE
-                    val myRef = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(myDocId)
-                    batch.update(myRef, Constants.FIELD_STATUS, Constants.STATUS_EARTHQUAKE)
-                    batch.update(myRef, Constants.FIELD_NEARBY_DEVICES, totalAffected)
-
-                    // DİĞER CİHAZLARI DA GÜNCELLE (İlk atan cihazın da sayısı 0 kalmasın)
-                    for (otherId in nearbyDocs) {
-                        val otherRef = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(otherId)
-                        batch.update(otherRef, Constants.FIELD_STATUS, Constants.STATUS_EARTHQUAKE)
-                        batch.update(otherRef, Constants.FIELD_NEARBY_DEVICES, totalAffected)
-                    }
-
-                    batch.commit().addOnSuccessListener {
-                        Log.d("QuakeService", "Konsensüs sağlandı: Tüm kayıtlar DEPREM ($totalAffected cihaz) olarak güncellendi.")
-                    }
-                }
-            }
-    }
-
-    private fun listenForConfirmation(documentId: String) {
-        confirmationListener?.remove()
-        confirmationListener = firestore.collection(Constants.FIRESTORE_COLLECTION_ALERTS).document(documentId)
-            .addSnapshotListener { snapshot, _ ->
-                if (snapshot != null && snapshot.exists() && snapshot.getString(Constants.FIELD_STATUS) == Constants.STATUS_EARTHQUAKE) {
-                    val nearby = snapshot.getLong(Constants.FIELD_NEARBY_DEVICES)?.toInt() ?: 0
-                    if (nearby > 0) {
-                        notificationHelper.sendConfirmedNotification(snapshot.getDouble(Constants.FIELD_MAGNITUDE)?.toFloat() ?: 0f, nearby)
-                        confirmationListener?.remove()
-                    }
-                }
-            }
-    }
-
     private fun sendNearbyAlert() {
-        val myId = auth.currentUser?.uid ?: com.example.deprembitirmeprojesi.util.Constants.DUMMY_USER_ID
-        nearbyManager?.startHybridMode("SHAKE_ALERT_${Build.MODEL}", myId)
         nearbyManager?.broadcastData("SHAKE_ALERT:${System.currentTimeMillis()}")
     }
 
     override fun onDataReceived(endpointId: String, message: String) {
-        if (message.startsWith("SHAKE_ALERT") && !isHighPrecisionActive) {
-            triggerHighPrecision(0f)
+        // MESH ÜZERİNDEN GELEN SARSINTI UYARISI
+        if (message.startsWith("SHAKE_ALERT")) {
+            Log.d("QuakeService", "Mesh üzerinden DEPREM ONAYI alındı! Yerel onay tetikleniyor.")
+            
+            // 1. Bildirim gönder
+            notificationHelper.sendConfirmedNotification(5.5f, 1)
+            
+            // 2. Eğer ben sallanmıyorsam bile, şebekeden gelen bu 'kesin' bilgiyle
+            // kendi kaydımı bulutta 'DEPREM' olarak güncelle/oluştur.
+            // Bu sayede MainViewModel (UI) anında kırmızı moda geçer.
+            if (!isHighPrecisionActive) {
+                processAndSendFirebase(5.5f, 0.8f) // Sahte sarsıntı ile zorunlu onay gönder
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    confirmEarthquake(85, 2)
+                }, 1000)
+            } else {
+                // Zaten sallanıyorsam süreci hızlandır
+                checkConsensusAndScore(System.currentTimeMillis())
+            }
         }
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        try { unregisterReceiver(batteryReceiver) } catch (e: Exception) {}
+        fusedLocationClient.removeLocationUpdates(locationCallback)
         wakeLock?.let { if (it.isHeld) it.release() }
         sensorManager.unregisterListener(this)
+        super.onDestroy()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
     override fun onDeviceFound(endpointId: String, deviceName: String) {}
     override fun onLogMessage(message: String) {}
     override fun onConnectionEstablished(endpointId: String, deviceName: String) {}

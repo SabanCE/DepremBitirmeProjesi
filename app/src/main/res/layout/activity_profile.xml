@@ -4,23 +4,23 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="?android:attr/colorBackground"
     tools:context=".ui.ProfileActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@android:color/transparent"
+        android:background="?attr/colorSurface"
         app:elevation="0dp">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Profilim"
-            app:titleTextColor="#FFFFFF"
+            app:title="Profil Bilgilerim"
+            app:titleTextColor="?android:attr/textColorPrimary"
             app:navigationIcon="@drawable/ic_back"
-            app:navigationIconTint="#FFFFFF" />
+            app:navigationIconTint="?attr/colorControlNormal" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.core.widget.NestedScrollView
@@ -32,7 +32,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="20dp">
+            android:padding="24dp">
 
             <!-- Profil Header -->
             <LinearLayout
@@ -40,79 +40,99 @@
                 android:layout_height="wrap_content"
                 android:gravity="center"
                 android:orientation="vertical"
-                android:paddingVertical="20dp">
+                android:paddingVertical="32dp">
 
                 <com.google.android.material.imageview.ShapeableImageView
                     android:id="@+id/ivProfilePicture"
-                    android:layout_width="100dp"
-                    android:layout_height="100dp"
-                    android:padding="2dp"
+                    android:layout_width="110dp"
+                    android:layout_height="110dp"
+                    android:padding="4dp"
                     android:src="@drawable/ic_user_profile"
                     app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.App.CornerSize50Percent"
                     app:strokeColor="#D32F2F"
-                    app:strokeWidth="2dp" />
+                    app:strokeWidth="3dp"
+                    app:elevation="4dp" />
 
                 <TextView
                     android:id="@+id/tvProfileName"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="16dp"
                     android:text="Ad Soyad"
-                    android:textColor="#FFFFFF"
-                    android:textSize="22sp"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="24sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvProfileEmail"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="email@example.com"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp" />
             </LinearLayout>
 
             <!-- Kişisel Bilgiler Kartı -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                app:cardBackgroundColor="#1E1E1E"
-                app:cardCornerRadius="16dp"
+                android:layout_marginBottom="20dp"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="2dp"
-                app:strokeWidth="0dp">
+                app:strokeWidth="1dp"
+                app:strokeColor="?attr/colorOutlineVariant">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="24dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="16dp"
-                        android:text="Kişisel Bilgiler"
+                        android:layout_marginBottom="20dp"
+                        android:text="Kişisel Detaylar"
                         android:textColor="#D32F2F"
                         android:textSize="16sp"
-                        android:textStyle="bold" />
+                        android:textStyle="bold"
+                        android:letterSpacing="0.02" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:textColorHint="#888888"
+                        android:layout_marginBottom="16dp"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etFullName"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:hint="Ad Soyad"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:textColorHint="#888888"
+                        android:layout_marginBottom="16dp"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etTCKN"
@@ -121,23 +141,27 @@
                             android:hint="T.C. Kimlik No"
                             android:inputType="number"
                             android:maxLength="11"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColorHint="#888888"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etBirthDate"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:hint="Doğum Tarihi"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -146,75 +170,89 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                app:cardBackgroundColor="#1E1E1E"
-                app:cardCornerRadius="16dp"
+                android:layout_marginBottom="20dp"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="2dp"
-                app:strokeWidth="0dp">
+                app:strokeWidth="1dp"
+                app:strokeColor="?attr/colorOutlineVariant">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="24dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="16dp"
+                        android:layout_marginBottom="20dp"
                         android:text="Sağlık ve Erişilebilirlik"
                         android:textColor="#D32F2F"
                         android:textSize="16sp"
-                        android:textStyle="bold" />
+                        android:textStyle="bold"
+                        android:letterSpacing="0.02" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:textColorHint="#888888"
+                        android:layout_marginBottom="16dp"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etBloodType"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:hint="Kan Grubu"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:textColorHint="#888888"
+                        android:layout_marginBottom="16dp"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etChronicIllness"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:hint="Kronik Hastalık"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColorHint="#888888"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etRegularMedication"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:hint="Düzenli İlaçlar"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -223,58 +261,68 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                app:cardBackgroundColor="#1E1E1E"
-                app:cardCornerRadius="16dp"
+                android:layout_marginBottom="32dp"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="2dp"
-                app:strokeWidth="0dp">
+                app:strokeWidth="1dp"
+                app:strokeColor="?attr/colorOutlineVariant">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="24dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="16dp"
+                        android:layout_marginBottom="20dp"
                         android:text="İkametgah Bilgileri"
                         android:textColor="#D32F2F"
                         android:textSize="16sp"
-                        android:textStyle="bold" />
+                        android:textStyle="bold"
+                        android:letterSpacing="0.02" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:textColorHint="#888888"
+                        android:layout_marginBottom="16dp"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etApartmentInfo"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:hint="Apartman Adı"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColorHint="#888888"
+                        android:textColorHint="?android:attr/textColorSecondary"
                         app:boxStrokeColor="#D32F2F"
-                        app:hintTextColor="#D32F2F">
+                        app:hintTextColor="#D32F2F"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etFloorInfo"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:hint="Kat / Daire No"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="?android:attr/textColorPrimary" />
                     </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -282,14 +330,16 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSaveProfile"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
-                android:layout_marginBottom="32dp"
+                android:layout_height="62dp"
+                android:layout_marginBottom="40dp"
                 android:backgroundTint="#D32F2F"
                 android:text="PROFİLİ GÜNCELLE"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                app:cornerRadius="12dp" />
+                android:letterSpacing="0.05"
+                app:cornerRadius="18dp"
+                app:elevation="4dp" />
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>

@@ -22,6 +22,7 @@ object Constants {
     const val SHAKE_THRESHOLD = 2.5f
 
     const val ROLE_PERSONNEL = "personel"
+    const val ROLE_MUDUR = "mudur"
 
     // Firestore fields
     const val FIELD_USER_ID = "user_id"

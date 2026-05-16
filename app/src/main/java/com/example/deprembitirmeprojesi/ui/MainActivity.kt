@@ -17,13 +17,15 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.view.View
-import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.GravityCompat
+import com.google.android.material.materialswitch.MaterialSwitch
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -32,6 +34,7 @@ import com.example.deprembitirmeprojesi.data.AppDatabase
 import com.example.deprembitirmeprojesi.databinding.ActivityMainBinding
 import com.example.deprembitirmeprojesi.util.AccelerometerHelper
 import com.example.deprembitirmeprojesi.util.Constants
+import com.example.deprembitirmeprojesi.util.ThemeHelper
 import com.example.deprembitirmeprojesi.viewmodel.MainViewModel
 import com.example.deprembitirmeprojesi.viewmodel.UiState
 import com.github.mikephil.charting.components.Description
@@ -46,7 +49,6 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var accelerometerHelper: AccelerometerHelper
-    private lateinit var adapter: EarthquakeAdapter
     private var mediaPlayer: MediaPlayer? = null
     private var isAlarmPlaying = false
 
@@ -66,11 +68,13 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeHelper.applyTheme(this)
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         auth = Firebase.auth
+        val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
 
         // AÇILIŞTA HAYALET BAĞLANTILARI TEMİZLE
         lifecycleScope.launch {
@@ -80,16 +84,13 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
 
         setupUI()
         observeViewModel()
+        // checkPermissions() artık doğrudan servisi başlatmayacak, updateCriticalModeUI() bunu yapacak
         checkPermissions()
-        checkBatteryOptimizations()
 
         accelerometerHelper = AccelerometerHelper(this, this)
         
         // Kritik Takip Modu başlangıç ayarı
-        val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
         val isCriticalMode = sharedPref.getBoolean("CRITICAL_MODE", false)
-        binding.switchCriticalMode.isChecked = isCriticalMode
-        
         if (isCriticalMode) {
             startEarthquakeService()
         }
@@ -138,65 +139,150 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
 
     private fun setupUI() {
         setupChart()
-        adapter = EarthquakeAdapter()
-        binding.recyclerView.adapter = adapter
-        binding.recyclerView.layoutManager = LinearLayoutManager(this)
         
-        // Kritik Mod Switch Mantığı
-        binding.switchCriticalMode.setOnCheckedChangeListener { _, isChecked ->
-            val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
-            with(sharedPref.edit()) {
-                putBoolean("CRITICAL_MODE", isChecked)
-                apply()
-            }
-            
-            if (isChecked) {
-                startEarthquakeService()
-                Toast.makeText(this, "Kritik Takip Modu Aktif (7/24 Koruma)", Toast.LENGTH_SHORT).show()
-            } else {
-                stopEarthquakeService()
-                Toast.makeText(this, "Standart Mod: Arka plan takibi durduruldu", Toast.LENGTH_SHORT).show()
-            }
+        binding.toolbar.setNavigationOnClickListener {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
-        // Simülasyon butonu (Test amaçlı)
-        binding.btnSimulate.setOnClickListener {
-            val intent = Intent(this, UserEmergencyActivity::class.java)
-            startActivity(intent)
+        binding.btnToolbarSos.setOnClickListener {
+            startActivity(Intent(this, UserEmergencyActivity::class.java))
         }
 
-        binding.btnMenu.setOnClickListener { view ->
-            showPopupMenu(view)
+        binding.btnLargeSos.setOnClickListener {
+            startActivity(Intent(this, UserEmergencyActivity::class.java))
         }
-    }
 
-    private fun showPopupMenu(view: View) {
-        val popupMenu = PopupMenu(this, view)
-        popupMenu.menuInflater.inflate(R.menu.main_menu, popupMenu.menu)
-        popupMenu.setOnMenuItemClickListener { item ->
+        val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
+
+        // Sidebar Menü Ayarları
+        binding.navigationView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.menu_profile -> {
                     startActivity(Intent(this, ProfileActivity::class.java))
-                    true
+                    binding.drawerLayout.closeDrawer(GravityCompat.START)
+                }
+                R.id.menu_dark_mode -> {
+                    val sw = item.actionView as MaterialSwitch
+                    sw.isChecked = !sw.isChecked
+                    return@setNavigationItemSelectedListener true
+                }
+                R.id.menu_critical_mode -> {
+                    val sw = item.actionView as MaterialSwitch
+                    sw.isChecked = !sw.isChecked
+                    return@setNavigationItemSelectedListener true
+                }
+                R.id.menu_assistant -> {
+                    startActivity(Intent(this, AssistantActivity::class.java))
+                    binding.drawerLayout.closeDrawer(GravityCompat.START)
+                }
+                R.id.menu_assembly_area -> {
+                    startActivity(Intent(this, AssemblyMapActivity::class.java))
+                    binding.drawerLayout.closeDrawer(GravityCompat.START)
                 }
                 R.id.menu_logout -> {
                     auth.signOut()
                     val intent = Intent(this, LoginActivity::class.java)
                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                     startActivity(intent)
-                    true
+                    finish()
                 }
-                else -> false
+            }
+            true
+        }
+
+        // Sidebar Switch Mantığı (Koyu Tema ve Kritik Takip)
+        val darkModeItem = binding.navigationView.menu.findItem(R.id.menu_dark_mode)
+        val darkModeSwitch = darkModeItem.actionView as MaterialSwitch
+        darkModeSwitch.isChecked = sharedPref.getBoolean("DARK_MODE", false)
+        darkModeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            sharedPref.edit().putBoolean("DARK_MODE", isChecked).apply()
+            if (isChecked) {
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+            } else {
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
             }
         }
-        popupMenu.show()
+
+        val criticalModeItem = binding.navigationView.menu.findItem(R.id.menu_critical_mode)
+        val criticalModeSwitch = criticalModeItem.actionView as MaterialSwitch
+        
+        // Başlangıç durumunu ayarla
+        updateCriticalModeUI()
+    }
+
+    private fun updateCriticalModeUI() {
+        val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
+        val criticalModeItem = binding.navigationView.menu.findItem(R.id.menu_critical_mode)
+        val criticalModeSwitch = criticalModeItem.actionView as? MaterialSwitch ?: return
+        
+        val isPrefEnabled = sharedPref.getBoolean("CRITICAL_MODE", false)
+        val allGranted = isAllCriticalPermissionsGranted()
+        
+        Log.d("MainActivity", "updateCriticalModeUI: Pref=$isPrefEnabled, AllGranted=$allGranted")
+
+        // Dinleyiciyi geçici olarak kaldırıyoruz
+        criticalModeSwitch.setOnCheckedChangeListener(null)
+
+        if (isPrefEnabled && allGranted) {
+            criticalModeSwitch.isChecked = true
+            startEarthquakeService()
+        } else {
+            criticalModeSwitch.isChecked = false
+            // SADECE eğer servis çalışıyorsa ve izinler eksikse durdur
+            // Not: stopService güvenlidir, servis çalışmıyorsa bir şey yapmaz.
+            if (isPrefEnabled && !allGranted) {
+                // stopEarthquakeService() // Şimdilik sert durdurmayı kaldırıyoruz, yarış durumunu önlemek için
+            }
+        }
+
+        // Dinleyiciyi tekrar bağlıyoruz
+        criticalModeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            handleCriticalModeChange(criticalModeSwitch, isChecked)
+        }
+    }
+
+    private fun handleCriticalModeChange(sw: MaterialSwitch, isChecked: Boolean) {
+        val sharedPref = getSharedPreferences("Settings", Context.MODE_PRIVATE)
+        if (isChecked) {
+            if (!hasLocationPermission()) {
+                sw.post { sw.isChecked = false }
+                checkPermissions()
+                Toast.makeText(this, "Kritik mod için konum izni gereklidir.", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                sw.post { sw.isChecked = false }
+                checkBackgroundLocationPermission()
+                return
+            }
+
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !pm.isIgnoringBatteryOptimizations(packageName)) {
+                sw.post { sw.isChecked = false }
+                // ÖNEMLİ: Tercihi true yapıyoruz, kullanıcı ayarlardan dönünce updateCriticalModeUI bunu görecek
+                sharedPref.edit().putBoolean("CRITICAL_MODE", true).apply()
+                checkBatteryOptimizations()
+                return
+            }
+
+            // TÜM ŞARTLAR SAĞLANDI
+            sharedPref.edit().putBoolean("CRITICAL_MODE", true).apply()
+            startEarthquakeService()
+            Toast.makeText(this, "Kritik Takip Modu Aktif", Toast.LENGTH_SHORT).show()
+        } else {
+            sharedPref.edit().putBoolean("CRITICAL_MODE", false).apply()
+            stopEarthquakeService()
+            Toast.makeText(this, "Kritik Takip Modu Kapatıldı", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showPopupMenu(view: View) {
+        // Artık Drawer kullanıyoruz, bu metodun işlevi kalmadı ama referansları temizlemeliyiz.
     }
 
     private fun observeViewModel() {
-        viewModel.earthquakeRecords.observe(this) { list ->
-            adapter.setData(list)
-        }
-
         viewModel.toastMessage.observe(this) { message ->
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
@@ -215,7 +301,7 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
                     handleRiskUI(state.score, state.level)
                 }
                 is UiState.Confirmed -> {
-                    binding.txtStatus.text = "🚨 DEPREM DOĞRULANDI!\nŞiddet: ${state.magnitude}\nÇevredeki Etkilenen Cihazlar: ${state.nearby}"
+                    binding.txtStatus.text = "🚨 BÖLGESEL SARSINTI!\nÇevrenizdeki ${state.nearby} cihaz sarsıntı bildirdi.\nLütfen tedbirli olun."
                     binding.txtStatus.setTextColor(Color.RED)
                     playAlarmSound()
                     playShakeAnimation()
@@ -254,7 +340,7 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
                 playShakeAnimation()
             }
             Constants.LEVEL_HIGH -> {
-                binding.txtStatus.text = "🔴 YÜKSEK RİSK\nDEPREM! Güvenli alana geç"
+                binding.txtStatus.text = "🔴 YÜKSEK RİSK\nŞiddetli sarsıntı! Lütfen tedbirli olun."
                 binding.txtStatus.setTextColor(Color.RED)
                 playAlarmSound()
                 playShakeAnimation()
@@ -287,8 +373,7 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         if (missingPermissions.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), REQUEST_CODE_PERMISSIONS)
         } else {
-            // İzinler tamamsa servisi başlat
-            startEarthquakeService()
+            // İzinler tamamsa, servis başlatma işini updateCriticalModeUI() halledecek
             checkBackgroundLocationPermission()
         }
     }
@@ -376,6 +461,7 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
     override fun onResume() {
         super.onResume()
         accelerometerHelper.start()
+        updateCriticalModeUI()
     }
 
     override fun onPause() {
@@ -421,5 +507,27 @@ class MainActivity : AppCompatActivity(), AccelerometerHelper.AccelerometerListe
         binding.sensorChart.notifyDataSetChanged()
         binding.sensorChart.setVisibleXRangeMaximum(50f)
         binding.sensorChart.moveViewToX(data.entryCount.toFloat())
+    }
+
+    private fun isAllCriticalPermissionsGranted(): Boolean {
+        // Konum izni kontrolü
+        if (!hasLocationPermission()) return false
+
+        // Android 10+ için arka plan konum izni
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                return false
+            }
+        }
+
+        // Pil optimizasyonu kontrolü
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                return false
+            }
+        }
+
+        return true
     }
 }

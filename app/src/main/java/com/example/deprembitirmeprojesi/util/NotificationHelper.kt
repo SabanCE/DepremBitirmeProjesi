@@ -92,8 +92,8 @@ class NotificationHelper(private val context: Context) {
 
         val builder = NotificationCompat.Builder(context, Constants.CHANNEL_HIGH)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("🚨 DEPREM DOĞRULANDI!")
-            .setContentText("Şiddet: $formattedMagnitude - Çevredeki $nearby cihaz onayladı! GÜVENLİ ALANA GEÇİN!")
+            .setContentTitle("🚨 BÖLGESEL SARSINTI UYARISI!")
+            .setContentText("Çevrenizdeki cihazlar sarsıntı bildirdi. Lütfen tedbirli olun!")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setFullScreenIntent(pendingIntent, true)

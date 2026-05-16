@@ -8,6 +8,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.deprembitirmeprojesi.R
 import com.example.deprembitirmeprojesi.data.AppDatabase
 import com.example.deprembitirmeprojesi.data.DisasterReport
+import com.example.deprembitirmeprojesi.util.ThemeHelper
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -16,13 +17,17 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.example.deprembitirmeprojesi.util.RiskCalculator
 import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.material.chip.ChipGroup
 import com.google.maps.android.clustering.ClusterManager
 import com.google.maps.android.clustering.view.DefaultClusterRenderer
 import kotlinx.coroutines.launch
 
-class MapActivity : AppCompatActivity(), OnMapReadyCallback {
+import com.google.android.gms.maps.MapsInitializer
+import com.google.android.gms.maps.OnMapsSdkInitializedCallback
+
+class MapActivity : AppCompatActivity(), OnMapReadyCallback, OnMapsSdkInitializedCallback {
 
     private lateinit var googleMap: GoogleMap
     private val database by lazy { AppDatabase.getDatabase(this) }
@@ -38,7 +43,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
     private var iconDisconnected: BitmapDescriptor? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeHelper.applyTheme(this)
         super.onCreate(savedInstanceState)
+        
+        // Google Maps SDK'yı zorunlu olarak başlat
+        MapsInitializer.initialize(applicationContext, MapsInitializer.Renderer.LATEST, this)
+
         setContentView(R.layout.activity_map)
 
         val mapFragment = supportFragmentManager
@@ -67,27 +77,48 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onMapReady(map: GoogleMap) {
         googleMap = map
+        googleMap.setMapStyle(MapStyleOptions.loadRawResourceStyle(this, R.raw.map_style_dark))
+        Log.d("MapActivity", "Google Map Hazır!")
         currentZoom = map.cameraPosition.zoom
         
-        // Marker ikonlarını ana thread üzerinde önceden oluştur (Background thread crashini önlemek için)
         initMarkerIcons()
-
         setupClusterManager()
 
         val lat = intent.getDoubleExtra("LAT", 0.0)
         val lng = intent.getDoubleExtra("LNG", 0.0)
+        val targetLoc = intent.getStringExtra("TARGET_LOCATION")
 
         if (lat != 0.0 && lng != 0.0) {
-            // Eğer belirli bir koordinat (mesaja tıklanarak) gelmişse oraya odaklan
-            googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lng), 15f))
+            val pos = LatLng(lat, lng)
+            googleMap.addMarker(MarkerOptions()
+                .position(pos)
+                .title("🎯 GÖREV NOKTASI")
+                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)))
+            googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(pos, 17f))
+        } else if (targetLoc != null) {
+            val coords = targetLoc.split(",")
+            val tLat = coords[0].toDoubleOrNull()
+            val tLng = coords[1].toDoubleOrNull()
+            if (tLat != null && tLng != null) {
+                val pos = LatLng(tLat, tLng)
+                googleMap.addMarker(MarkerOptions().position(pos).title("HEDEF GÖREV").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)))
+                googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(pos, 15f))
+            }
         } else {
-            // Varsayılan Türkiye görünümü
             val turkey = LatLng(39.0, 35.0)
             googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(turkey, 6f))
         }
 
         googleMap.mapType = GoogleMap.MAP_TYPE_NORMAL
         loadData()
+    }
+
+    override fun onMapsSdkInitialized(renderer: MapsInitializer.Renderer) {
+        when (renderer) {
+            MapsInitializer.Renderer.LATEST -> Log.d("MapActivity", "Google Maps en son render motorunu kullanıyor.")
+            MapsInitializer.Renderer.LEGACY -> Log.d("MapActivity", "Google Maps eski render motorunu kullanıyor.")
+            else -> Log.d("MapActivity", "Google Maps bilinmeyen bir motor kullanıyor.")
+        }
     }
 
     private fun setupClusterManager() {
@@ -123,8 +154,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
         lifecycleScope.launch {
             // Flow kullanarak veritabanındaki her değişikliği canlı dinle
             database.reportDao().getAllReportsFlow().collect { reports ->
-                // AFAD Personelini haritada göstermiyoruz
-                allReports = reports.filter { it.role != "AFAD" }
+                // AFAD Personelini haritada sadece bağlı ise gösteriyoruz (Senkronizasyon trafiğini azaltmak için)
+                // Depremzedeler (Victim) her zaman gösterilir.
+                allReports = reports.filter { it.role != "AFAD" || it.isConnected }
                 applyFilter()
             }
         }
@@ -152,8 +184,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback {
         findViewById<TextView>(R.id.txtCount).text = "Filtrelenen: ${filtered.size} / Toplam: ${allReports.size}"
         findViewById<TextView>(R.id.txtAreaCount).text = "🎯 Alan Taraması: ${filtered.size} Kişi"
 
-        // Alt taraftaki Öncelikli Müdahale Listesini Güncelle
-        updatePriorityList(filtered)
+        // Alt taraftaki Öncelikli Müdahale Listesini Güncelle (Sadece kurtarılmayanlar)
+        updatePriorityList(filtered.filter { it.status != "RESCUED" })
 
         var focusedOnFirst = false
         val hasSpecificTarget = intent.hasExtra("LAT")

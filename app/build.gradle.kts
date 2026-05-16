@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.deprembitirmeprojesi"
-    compileSdk = 36
+    compileSdk = 35
 
     buildFeatures {
         viewBinding = true
@@ -16,7 +16,7 @@ android {
     defaultConfig {
         applicationId = "com.example.deprembitirmeprojesi"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 34  // API 37 uyumsuzluğunu önlemek için 34'e düşürün
         versionCode = 1
         versionName = "1.0"
 
@@ -63,15 +63,21 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0") // Grafik Çizimi İçin
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.1")
-    implementation("com.google.android.gms:play-services-nearby:19.3.0")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation(libs.play.services.nearby)
+    implementation(libs.play.services.maps)
     implementation("com.google.maps.android:android-maps-utils:3.8.2")
 
     // Firebase
-    implementation(platform("com.google.firebase:firebase-bom:33.1.1"))
-    implementation("com.google.firebase:firebase-analytics")
-    implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation(platform("com.google.firebase:firebase-bom:33.1.1"))
-    implementation("com.google.firebase:firebase-auth")
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.firestore)
+    implementation(libs.play.services.location)
+    implementation(libs.play.services.base)
+    implementation(libs.firebase.auth)
+    
+    // Gemini AI
+    implementation(libs.generativeai)
+
+    // MapLibre (Offline Maps)
+    implementation(libs.maplibre.android)
 }

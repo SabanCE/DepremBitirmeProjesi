@@ -9,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityRegisterBinding
 import com.example.deprembitirmeprojesi.util.Constants
+import com.example.deprembitirmeprojesi.util.ThemeHelper
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.ktx.firestore
@@ -20,11 +21,22 @@ class RegisterActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeHelper.applyTheme(this)
         super.onCreate(savedInstanceState)
         binding = ActivityRegisterBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         auth = Firebase.auth
+
+        // Geri butonu işlevselliği
+        binding.toolbar.setNavigationOnClickListener {
+            onBackPressedDispatcher.onBackPressed()
+        }
+
+        // Giriş yap sayfasına yönlendirme
+        binding.loginTextButton.setOnClickListener {
+            finish() // Zaten LoginActivity'den gelmiş olabiliriz, değilsek de finish() mantıklı
+        }
 
         binding.registerButton.setOnClickListener {
             binding.registerButton.isEnabled = false
@@ -47,6 +59,9 @@ class RegisterActivity : AppCompatActivity() {
                                 db.collection(Constants.FIRESTORE_COLLECTION_USERS).document(user.uid)
                                     .set(userProfile)
                                     .addOnSuccessListener {
+                                        // Kayıt başarılı olduğunda rolü kaydet (Default "user")
+                                        ThemeHelper.setLastUserRole(this, userProfile.role)
+
                                         Toast.makeText(this, "Kayıt Başarılı! Yönlendiriliyorsunuz...", Toast.LENGTH_LONG).show()
 
                                         Handler(Looper.getMainLooper()).postDelayed({

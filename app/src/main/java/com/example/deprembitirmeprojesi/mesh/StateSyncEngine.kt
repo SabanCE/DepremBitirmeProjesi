@@ -10,7 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.util.Collections
+import java.util.UUID
 
 /**
  * StateSyncEngine: Yerel DB ile Mesh Ağı arasındaki senkronizasyonu yönetir.
@@ -23,27 +23,20 @@ class StateSyncEngine(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val TAG = "StateSyncEngine"
 
-    private val seenMessageIds = Collections.synchronizedSet(mutableSetOf<String>())
-    private val MAX_SEEN_CACHE = 500
-
     private val processedPackets = mutableSetOf<String>()
 
     fun isPacketSeen(packetId: String): Boolean {
-        if (processedPackets.contains(packetId)) return true
-        processedPackets.add(packetId)
-        // Belleği temiz tutmak için 1000 paketten sonrasını silebiliriz
-        if (processedPackets.size > 1000) processedPackets.remove(processedPackets.first())
-        return false
+        synchronized(processedPackets) {
+            if (processedPackets.contains(packetId)) return true
+            processedPackets.add(packetId)
+            if (processedPackets.size > 1000) {
+                processedPackets.remove(processedPackets.first())
+            }
+            return false
+        }
     }
 
     fun handleIncomingPacket(packet: MeshPacket) {
-        if (seenMessageIds.contains(packet.id)) return
-        
-        if (seenMessageIds.size > MAX_SEEN_CACHE) {
-            seenMessageIds.clear()
-        }
-        seenMessageIds.add(packet.id)
-
         scope.launch {
             try {
                 when (packet.type) {
@@ -95,7 +88,6 @@ class StateSyncEngine(
                 version = report.version,
                 ttl = 5
             )
-            seenMessageIds.add(packet.id)
             nearbyManager.broadcastData(packet.toJson())
         }
     }
@@ -135,8 +127,12 @@ class StateSyncEngine(
 
     private fun sendSingleReport(report: DisasterReport) {
         // AFAD Koordinasyonu: Sadece depremzedelerin (VICTIM) bilgilerini paylaşıyoruz.
-        // AFAD kendi bilgisini ağa yaymamalı.
-        if (report.role == "AFAD") return
+        // İSTİSNA: Acil yayın ve merkez mesajları tüm ağa yayılmalıdır.
+        if (report.role == "AFAD" && 
+            report.senderId != "AFAD_ACIL_YAYIN" && 
+            report.senderId != "AFAD_MERKEZ") {
+            return
+        }
 
         // KRİTİK: SYNC sırasında isConnected bilgisini ASLA göndermiyoruz.
         val syncReport = report.copy(isConnected = false)

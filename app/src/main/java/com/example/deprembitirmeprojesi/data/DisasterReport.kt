@@ -5,13 +5,13 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "disaster_reports")
 data class DisasterReport(
-    @PrimaryKey val senderId: String,
-    var rawMessage: String,
+    @PrimaryKey val senderId: String = "",
+    var rawMessage: String = "",
     var userProfile: String = "",
     var batteryLevel: String = "",
     var lastLocation: String = "",
     var isConnected: Boolean = false,
-    var lastSeenTimestamp: Long,
+    var lastSeenTimestamp: Long = 0,
     var isUploaded: Boolean = false,
     
     // Role-Based Mesh Alanları

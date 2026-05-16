@@ -28,10 +28,10 @@ class AccelerometerHelper(context: Context, private val listener: AccelerometerL
     private val activeAxes = mutableSetOf<Int>() // 0:X, 1:Y, 2:Z
 
     // --- Algoritma Parametreleri (Kritik Pattern Değerleri) ---
-    private val MIN_SHAKE_DURATION = 1500L      // Sarsıntı en az 1.5 saniye sürmeli (Anlık düşmeleri eler)
-    private val MAX_GAP_BETWEEN_SHAKES = 500L    // Sarsıntılar arası max boşluk (Süreklilik kontrolü)
-    private val MIN_AXES_COUNT = 2               // En az 2 eksende hareket olmalı (Kaotik yapı)
-    private val SHAKE_THRESHOLD = 0.4f            // Sarsıntı hassasiyeti (Yerçekimi normalize edilmiş)
+    private val MIN_SHAKE_DURATION = 1200L      // Sarsıntı en az 1.2 saniye sürmeli
+    private val MAX_GAP_BETWEEN_SHAKES = 400L    // Sarsıntılar arası max boşluk
+    private val MIN_AXES_COUNT = 2               // En az 2 eksende hareket olmalı
+    private val SHAKE_THRESHOLD = 1.5f            // SENKRONİZE EDİLDİ: Servis ile aynı (1.5g)
 
     fun start() {
         accelerometer?.let {

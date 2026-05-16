@@ -5,91 +5,85 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.deprembitirmeprojesi.databinding.ActivityLoginBinding
-import com.example.deprembitirmeprojesi.util.Constants
+import com.example.deprembitirmeprojesi.util.ThemeHelper
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthInvalidUserException
-import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.ktx.Firebase
 
 class LoginActivity : AppCompatActivity() {
+
     private lateinit var binding: ActivityLoginBinding
     private lateinit var auth: FirebaseAuth
-    private lateinit var firestore: FirebaseFirestore
+    private val db = FirebaseFirestore.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeHelper.applyTheme(this)
         super.onCreate(savedInstanceState)
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        auth = Firebase.auth
-        firestore = FirebaseFirestore.getInstance()
+        auth = FirebaseAuth.getInstance()
 
-        // Eğer Kullanıcı girmiş ise sisteme
+        // OTOMATİK GİRİŞ KONTROLÜ
         val currentUser = auth.currentUser
         if (currentUser != null) {
-            checkUserRoleAndNavigate(currentUser.uid)
+            checkUserRole(currentUser.uid)
         }
 
+        // Giriş yap butonu
         binding.loginButton.setOnClickListener {
             val email = binding.emailInput.text.toString().trim()
             val password = binding.passwordInput.text.toString().trim()
 
             if (email.isNotEmpty() && password.isNotEmpty()) {
-                binding.loginButton.isEnabled = false // Butona tekrar basılmasın
+                binding.loginButton.isEnabled = false // Butonu devre dışı bırak
                 auth.signInWithEmailAndPassword(email, password)
                     .addOnCompleteListener(this) { task ->
                         if (task.isSuccessful) {
                             val user = auth.currentUser
-                            if (user != null) {
-                                checkUserRoleAndNavigate(user.uid)
-                            }
+                            user?.let { checkUserRole(it.uid) }
                         } else {
-                            val exception = task.exception
-                            when (exception) {
-                                is FirebaseAuthInvalidUserException -> {
-                                    Toast.makeText(this, "Kullanıcı bulunamadı", Toast.LENGTH_SHORT).show()
-                                }
-                                is FirebaseAuthInvalidCredentialsException -> {
-                                    Toast.makeText(this, "Geçersiz e-posta veya şifre", Toast.LENGTH_SHORT).show()
-                                }
-                                else -> {
-                                    Toast.makeText(this, "Giriş başarısız: ${exception?.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            binding.loginButton.isEnabled = true // Butonu tekrar etkinleştir
+                            binding.loginButton.isEnabled = true
+                            Toast.makeText(this, "Giriş başarısız: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
                         }
                     }
             } else {
-                Toast.makeText(this, "Lütfen tüm alanları doldurun", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "E-posta ve şifre giriniz.", Toast.LENGTH_SHORT).show()
             }
         }
 
+        // Kayıt ol yazısı
         binding.registerTextButton.setOnClickListener {
-             val intent = Intent(this, RegisterActivity::class.java)
-             startActivity(intent)
+            val intent = Intent(this, RegisterActivity::class.java)
+            startActivity(intent)
         }
 
+        // Şifremi unuttum yazısı
         binding.forgotPasswordText.setOnClickListener {
-            Toast.makeText(this, "Şifremi unuttum özelliği henüz eklenmedi.", Toast.LENGTH_SHORT).show()
+            val intent = Intent(this, ForgotPasswordActivity::class.java)
+            startActivity(intent)
         }
     }
 
-    private fun checkUserRoleAndNavigate(userId: String) {
-        firestore.collection(Constants.FIRESTORE_COLLECTION_USERS).document(userId).get()
+    private fun checkUserRole(uid: String) {
+        db.collection("users").document(uid).get()
             .addOnSuccessListener { document ->
-                if (document.exists()) {
+                if (document != null && document.exists()) {
                     val role = document.getString("role")
-
-                    // Debug için log ekleyelim (Logcat'ten kontrol edebilirsin)
-                    println("DEBUG_ROLE: Firestore'dan gelen rol: '$role', Beklenen: '${Constants.ROLE_PERSONNEL}'")
-
-                    // equals(..., ignoreCase = true) kullanarak büyük/küçük harf hatasını önleyelim
-                    if (role?.equals(Constants.ROLE_PERSONNEL, ignoreCase = true) == true) {
-                        navigateToEmergencyActivity()
-                    } else {
-                        navigateToMainActivity()
+                    println("DEBUG_ROLE: Firestore'dan gelen rol: $role")
+                    
+                    when (role) {
+                         "mudur" -> {
+                            println("DEBUG_ROLE: Müdür/AFAD Paneline yönlendiriliyor...")
+                            navigateToTeamLeaderActivity()
+                        }
+                        "personel" -> {
+                            println("DEBUG_ROLE: Kurtarıcı Paneline yönlendiriliyor...")
+                            navigateToEmergencyActivity()
+                        }
+                        else -> {
+                            println("DEBUG_ROLE: Standart kullanıcı paneline yönlendiriliyor...")
+                            navigateToMainActivity()
+                        }
                     }
                 } else {
                     // Belge yoksa varsayılan olarak ana ekrana
@@ -104,16 +98,20 @@ class LoginActivity : AppCompatActivity() {
             }
     }
 
+    private fun navigateToTeamLeaderActivity() {
+        val intent = Intent(this, TeamLeaderActivity::class.java)
+        startActivity(intent)
+        finish()
+    }
+
     private fun navigateToMainActivity() {
         val intent = Intent(this, MainActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
         finish()
     }
 
     private fun navigateToEmergencyActivity() {
         val intent = Intent(this, EmergencyActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
         finish()
     }

@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.deprembitirmeprojesi.data.UserProfile
 import com.example.deprembitirmeprojesi.databinding.ActivityProfileBinding
+import com.example.deprembitirmeprojesi.util.ThemeHelper
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -16,6 +17,7 @@ class ProfileActivity : AppCompatActivity() {
     private lateinit var firestore: FirebaseFirestore
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeHelper.applyTheme(this)
         super.onCreate(savedInstanceState)
         binding = ActivityProfileBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -39,6 +41,8 @@ class ProfileActivity : AppCompatActivity() {
         val user = auth.currentUser
         val userId = user?.uid ?: return
         
+        binding.tvProfileEmail.text = user.email ?: ""
+
         firestore.collection("users").document(userId).get()
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {

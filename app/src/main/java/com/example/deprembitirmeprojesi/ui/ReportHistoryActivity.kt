@@ -5,7 +5,9 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.RelativeLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -15,6 +17,9 @@ import com.example.deprembitirmeprojesi.R
 import com.example.deprembitirmeprojesi.data.AppDatabase
 import com.example.deprembitirmeprojesi.data.DisasterReport
 import com.example.deprembitirmeprojesi.mesh.MeshNetworkManager
+import com.example.deprembitirmeprojesi.util.FakeDataGenerator
+import com.example.deprembitirmeprojesi.util.FirestoreSyncManager
+import com.example.deprembitirmeprojesi.util.ThemeHelper
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -25,13 +30,34 @@ class ReportHistoryActivity : AppCompatActivity() {
     private val database by lazy { AppDatabase.getDatabase(this) }
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: HistoryAdapter
+    private val firestoreSyncManager by lazy { FirestoreSyncManager(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ThemeHelper.applyTheme(this)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_report_history)
 
         findViewById<View>(R.id.btnBackHistory).setOnClickListener {
             finish()
+        }
+
+        // Sahte Veri Ekleme Mekanizması
+        val header = findViewById<RelativeLayout>(R.id.header)
+        for (i in 0 until header.childCount) {
+            val child = header.getChildAt(i)
+            if (child is TextView && child.text == "GEÇMİŞ KAYITLAR") {
+                child.setOnLongClickListener {
+                    lifecycleScope.launch {
+                        FakeDataGenerator.insertFakeReports(database, 20)
+                        Toast.makeText(this@ReportHistoryActivity, "20 Sahte Kayıt Eklendi", Toast.LENGTH_SHORT).show()
+                        
+                        // Eklenen verileri anında buluta gönder
+                        firestoreSyncManager.uploadAllReports()
+                        Toast.makeText(this@ReportHistoryActivity, "Veriler Buluta Senkronize Edildi", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+            }
         }
 
         recyclerView = findViewById(R.id.recyclerViewHistory)
@@ -46,7 +72,6 @@ class ReportHistoryActivity : AppCompatActivity() {
 
     private fun observeReports(targetSenderId: String?) {
         lifecycleScope.launch {
-            // Flow kullanarak veritabanındaki her değişikliği anlık takip et
             database.reportDao().getAllReportsFlow().collectLatest { reports ->
                 adapter.updateList(reports)
                 
@@ -96,15 +121,13 @@ class ReportHistoryActivity : AppCompatActivity() {
             val dateStr = sdf.format(Date(item.lastSeenTimestamp))
             
             holder.txtProfile.text = if(item.userProfile.isNotEmpty()) item.userProfile else "👤 Bilinmeyen Kullanıcı"
-            holder.txtBattery.text = if(item.batteryLevel.isNotEmpty()) item.batteryLevel else "🔋 Pil: --"
+            holder.txtBattery.text = if(item.batteryLevel.isNotEmpty()) "🔋 Pil: ${item.batteryLevel}" else "🔋 Pil: --"
             holder.txtMessage.text = if(item.rawMessage.isNotEmpty()) "🆘 Son Mesaj: ${item.rawMessage}" else "Mesaj yok"
             holder.txtLoc.text = if(item.lastLocation.isNotEmpty()) item.lastLocation else "📍 Konum: Bilinmiyor"
             holder.txtTime.text = "🕒 Son Görülme: $dateStr"
 
-            // Rescue Status UI
             updateStatusUI(holder.txtRescueStatus, item.status)
 
-            // Status Değiştirme Özelliği
             holder.txtRescueStatus.setOnClickListener {
                 val statuses = arrayOf("PENDING", "CLAIMED", "RESCUING", "RESCUED")
                 val statusLabels = arrayOf("⏳ YARDIM BEKLİYOR", "🚑 EKİP YOLDA", "👷 MÜDAHALE EDİLİYOR", "✅ KURTARILDI")
@@ -116,16 +139,16 @@ class ReportHistoryActivity : AppCompatActivity() {
                         lifecycleScope.launch {
                             item.status = newStatus
                             item.lastSeenTimestamp = System.currentTimeMillis()
-                            item.version++ // Versiyonu artır ki mesh ağında en güncel veri olsun
+                            item.version++
                             
                             database.reportDao().upsertReport(item)
                             
-                            // MESH AĞINA YAY
+                            // Durum güncellemesini buluta da gönder
+                            firestoreSyncManager.uploadAllReports()
+                            
                             try {
                                 MeshNetworkManager.getInstance(this@ReportHistoryActivity).updateAndBroadcastStatus(item)
-                            } catch (e: Exception) {
-                                // Mesh başlatılmamış olabilir, sadece yerelde kalsın
-                            }
+                            } catch (e: Exception) {}
                         }
                     }
                     .show()

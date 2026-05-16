@@ -15,7 +15,7 @@ import org.json.JSONObject
  */
 class MeshNetworkManager private constructor(
     private val context: Context,
-    private val nearbyManager: NearbyManager
+    providedNearbyManager: NearbyManager? = null
 ) : NearbyManager.NearbyListener {
 
     interface MeshMessageListener {
@@ -23,6 +23,7 @@ class MeshNetworkManager private constructor(
     }
 
     private var messageListener: MeshMessageListener? = null
+    private val nearbyManager: NearbyManager = providedNearbyManager ?: NearbyManager(context, this)
     private val syncEngine = StateSyncEngine(context, nearbyManager)
     private val database = AppDatabase.getDatabase(context)
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -35,11 +36,7 @@ class MeshNetworkManager private constructor(
 
         fun getInstance(context: Context, nearbyManager: NearbyManager? = null): MeshNetworkManager {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: if (nearbyManager != null) {
-                    MeshNetworkManager(context.applicationContext, nearbyManager).also { INSTANCE = it }
-                } else {
-                    throw IllegalStateException("MeshNetworkManager not initialized.")
-                }
+                INSTANCE ?: MeshNetworkManager(context.applicationContext, nearbyManager).also { INSTANCE = it }
             }
         }
     }
@@ -51,9 +48,6 @@ class MeshNetworkManager private constructor(
     override fun onDataReceived(endpointId: String, message: String) {
         val packet = MeshPacket.fromJson(message) ?: return
         
-        // 1. Paket zaten işlendiyse (log kirliliğini önlemek için kritik)
-        if (syncEngine.isPacketSeen(packet.id)) return
-
         if (packet.type == "STATE_UPDATE" || packet.type == "SYNC_DATA") {
             scope.launch {
                 try {
@@ -64,33 +58,43 @@ class MeshNetworkManager private constructor(
                     val role = obj.optString("role", "VICTIM")
 
                     // AFAD personelinin mesajlarını loga basma
-                    if (role == "AFAD") {
-                        syncEngine.handleIncomingPacket(packet)
+                    if (role.contains("AFAD")) {
+                        if (!syncEngine.isPacketSeen(packet.id)) {
+                            // AFAD mesajlarını da loga gönder (Depremzede görsün)
+                            if (rawMessage.isNotBlank()) {
+                                messageListener?.onMessageReceived("AFAD", rawMessage)
+                            }
+                            syncEngine.handleIncomingPacket(packet)
+                        }
                         return@launch
                     }
 
-                    // Yereldeki eski durumu kontrol et
-                    val localReport = database.reportDao().getReportBySender(senderId)
-                    
-                    // SADECE mesaj gerçekten değiştiyse veya ilk defa geliyorsa loga bas.
-                    // Status güncellemeleri isNewMessage'ı tetiklemez!
-                    val isNewMessage = localReport == null || localReport.rawMessage != rawMessage
-
-                    if (isNewMessage && rawMessage.isNotBlank() && 
+                    // Loglama (UI için): Paket ID'sini değil, sadece veriyi kontrol et
+                    // Böylece gossip ile gelen aynı veri log kirliliği yapmaz ama ilk gelişi loglanır.
+                    if (rawMessage.isNotBlank() && 
                         !rawMessage.contains("SİSTEME BAĞLANDI") && 
                         !rawMessage.contains("Bağlantı Kuruldu")) {
                         
-                        messageListener?.onMessageReceived(userName, rawMessage)
+                        val localReport = database.reportDao().getReportBySender(senderId)
+                        val isNewData = localReport == null || localReport.rawMessage != rawMessage || localReport.version < packet.version
+                        
+                        if (isNewData) {
+                            messageListener?.onMessageReceived(userName, rawMessage)
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e("MeshManager", "Log parse error", e)
                 }
                 
-                // 2. Senkronizasyonu başlat
-                syncEngine.handleIncomingPacket(packet)
+                // 2. Senkronizasyonu başlat (Eğer paket yeniyse)
+                if (!syncEngine.isPacketSeen(packet.id)) {
+                    syncEngine.handleIncomingPacket(packet)
+                }
             }
         } else {
-            syncEngine.handleIncomingPacket(packet)
+            if (!syncEngine.isPacketSeen(packet.id)) {
+                syncEngine.handleIncomingPacket(packet)
+            }
         }
     }
 
@@ -158,5 +162,13 @@ class MeshNetworkManager private constructor(
         scope.launch {
             database.reportDao().clearAllConnections()
         }
+    }
+
+    fun getConnectionCount(): Int {
+        return directConnections.size
+    }
+
+    fun startMesh(displayName: String, userId: String) {
+        nearbyManager.startHybridMode(displayName, userId)
     }
 }

@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="?android:attr/colorBackground"
     tools:context=".ui.RegisterActivity">
 
     <View
@@ -12,7 +12,7 @@
         android:layout_width="match_parent"
         android:layout_height="250dp"
         android:background="@drawable/gradient_background"
-        android:alpha="0.2"
+        android:alpha="0.1"
         app:layout_constraintTop_toTopOf="parent" />
 
     <com.google.android.material.appbar.MaterialToolbar
@@ -20,18 +20,19 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         app:navigationIcon="@drawable/ic_back"
-        app:navigationIconTint="#FFFFFF"
+        app:navigationIconTint="?attr/colorControlNormal"
         app:layout_constraintTop_toTopOf="parent" />
 
     <TextView
         android:id="@+id/register_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:text="Yeni Hesap Oluştur"
-        android:textColor="#FFFFFF"
-        android:textSize="28sp"
+        android:layout_marginTop="16dp"
+        android:text="Hesap Oluştur"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="30sp"
         android:textStyle="bold"
+        android:letterSpacing="0.01"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/toolbar" />
@@ -40,9 +41,10 @@
         android:id="@+id/register_subtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Topluluğumuza katılın ve güvende kalın"
-        android:textColor="#BBBBBB"
-        android:textSize="14sp"
+        android:layout_marginTop="4dp"
+        android:text="Topluluğumuza katılarak daha güvende kalın"
+        android:textColor="?android:attr/textColorSecondary"
+        android:textSize="15sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/register_title" />
@@ -50,36 +52,43 @@
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="28dp"
+        android:clipToPadding="false"
+        android:paddingBottom="32dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintTop_toBottomOf="@id/register_subtitle">
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="24dp"
+            android:layout_marginHorizontal="28dp"
             android:layout_marginBottom="32dp"
-            app:cardBackgroundColor="#1E1E1E"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="8dp"
-            app:strokeWidth="0dp">
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardCornerRadius="28dp"
+            app:cardElevation="6dp"
+            app:strokeWidth="1dp"
+            app:strokeColor="?attr/colorOutlineVariant">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="24dp">
+                android:padding="28dp">
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:textColorHint="#888888"
+                    android:layout_marginBottom="18dp"
+                    android:textColorHint="?android:attr/textColorSecondary"
                     app:boxStrokeColor="#D32F2F"
                     app:hintTextColor="#D32F2F"
+                    app:boxCornerRadiusBottomEnd="14dp"
+                    app:boxCornerRadiusBottomStart="14dp"
+                    app:boxCornerRadiusTopEnd="14dp"
+                    app:boxCornerRadiusTopStart="14dp"
                     app:startIconDrawable="@drawable/ic_user_profile"
-                    app:startIconTint="#888888">
+                    app:startIconTint="?attr/colorControlNormal">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/name_surname_input"
@@ -87,19 +96,23 @@
                         android:layout_height="wrap_content"
                         android:hint="Ad Soyad"
                         android:inputType="textPersonName"
-                        android:textColor="#FFFFFF" />
+                        android:textColor="?android:attr/textColorPrimary" />
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:textColorHint="#888888"
+                    android:layout_marginBottom="18dp"
+                    android:textColorHint="?android:attr/textColorSecondary"
                     app:boxStrokeColor="#D32F2F"
                     app:hintTextColor="#D32F2F"
+                    app:boxCornerRadiusBottomEnd="14dp"
+                    app:boxCornerRadiusBottomStart="14dp"
+                    app:boxCornerRadiusTopEnd="14dp"
+                    app:boxCornerRadiusTopStart="14dp"
                     app:startIconDrawable="@drawable/ic_user_profile"
-                    app:startIconTint="#888888">
+                    app:startIconTint="?attr/colorControlNormal">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/email_input"
@@ -107,21 +120,25 @@
                         android:layout_height="wrap_content"
                         android:hint="Email Adresi"
                         android:inputType="textEmailAddress"
-                        android:textColor="#FFFFFF" />
+                        android:textColor="?android:attr/textColorPrimary" />
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:textColorHint="#888888"
+                    android:layout_marginBottom="24dp"
+                    android:textColorHint="?android:attr/textColorSecondary"
                     app:boxStrokeColor="#D32F2F"
                     app:hintTextColor="#D32F2F"
+                    app:boxCornerRadiusBottomEnd="14dp"
+                    app:boxCornerRadiusBottomStart="14dp"
+                    app:boxCornerRadiusTopEnd="14dp"
+                    app:boxCornerRadiusTopStart="14dp"
                     app:passwordToggleEnabled="true"
-                    app:passwordToggleTint="#888888"
+                    app:passwordToggleTint="?attr/colorControlNormal"
                     app:startIconDrawable="@drawable/ic_back"
-                    app:startIconTint="#888888">
+                    app:startIconTint="?attr/colorControlNormal">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/password_input"
@@ -129,30 +146,33 @@
                         android:layout_height="wrap_content"
                         android:hint="Şifre"
                         android:inputType="textPassword"
-                        android:textColor="#FFFFFF" />
+                        android:textColor="?android:attr/textColorPrimary" />
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/register_button"
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
-                    android:layout_marginTop="16dp"
+                    android:layout_height="62dp"
                     android:backgroundTint="#D32F2F"
                     android:text="KAYIT OL"
                     android:textColor="#FFFFFF"
                     android:textSize="16sp"
                     android:textStyle="bold"
-                    app:cornerRadius="16dp" />
+                    android:letterSpacing="0.05"
+                    app:cornerRadius="18dp"
+                    app:elevation="4dp" />
 
                 <TextView
                     android:id="@+id/login_text_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:layout_marginTop="20dp"
+                    android:layout_marginTop="24dp"
+                    android:padding="8dp"
                     android:text="Zaten hesabınız var mı? Giriş Yap"
-                    android:textColor="#BBBBBB"
-                    android:textSize="14sp" />
+                    android:textColor="#D32F2F"
+                    android:textStyle="bold"
+                    android:textSize="15sp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

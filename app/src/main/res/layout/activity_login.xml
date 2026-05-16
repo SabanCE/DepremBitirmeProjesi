@@ -4,23 +4,29 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="?android:attr/colorBackground"
     tools:context=".ui.LoginActivity">
 
     <View
         android:id="@+id/topGradient"
         android:layout_width="match_parent"
-        android:layout_height="300dp"
+        android:layout_height="320dp"
         android:background="@drawable/gradient_background"
-        android:alpha="0.3"
+        android:alpha="0.1"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <ImageView
+    <com.google.android.material.imageview.ShapeableImageView
         android:id="@+id/logo_image"
-        android:layout_width="140dp"
-        android:layout_height="140dp"
-        android:layout_marginTop="60dp"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_marginTop="64dp"
         android:src="@drawable/logo"
+        android:elevation="4dp"
+        android:padding="2dp"
+        android:scaleType="centerCrop"
+        app:strokeWidth="1dp"
+        app:strokeColor="?attr/colorOutlineVariant"
+        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.App.SoftRectangle"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
@@ -29,11 +35,12 @@
         android:id="@+id/login_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="DEPREM GÜVENDE"
-        android:textColor="#FFFFFF"
-        android:textSize="26sp"
+        android:layout_marginTop="20dp"
+        android:text="Deprem Güvende"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="28sp"
         android:textStyle="bold"
+        android:letterSpacing="0.02"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/logo_image" />
@@ -42,9 +49,10 @@
         android:id="@+id/login_subtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Lütfen hesabınıza giriş yapın"
-        android:textColor="#BBBBBB"
-        android:textSize="14sp"
+        android:layout_marginTop="4dp"
+        android:text="Güvenliğiniz bizim önceliğimizdir"
+        android:textColor="?android:attr/textColorSecondary"
+        android:textSize="15sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/login_title" />
@@ -53,30 +61,35 @@
         android:id="@+id/loginCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginHorizontal="24dp"
-        android:layout_marginTop="40dp"
-        app:cardBackgroundColor="#1E1E1E"
-        app:cardCornerRadius="24dp"
-        app:cardElevation="8dp"
-        app:strokeWidth="0dp"
+        android:layout_marginHorizontal="28dp"
+        android:layout_marginTop="32dp"
+        app:cardBackgroundColor="?attr/colorSurface"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="6dp"
+        app:strokeWidth="1dp"
+        app:strokeColor="?attr/colorOutlineVariant"
         app:layout_constraintTop_toBottomOf="@id/login_subtitle">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="28dp">
 
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                android:textColorHint="#888888"
+                android:layout_marginBottom="18dp"
+                android:textColorHint="?android:attr/textColorSecondary"
                 app:boxStrokeColor="#D32F2F"
                 app:hintTextColor="#D32F2F"
+                app:boxCornerRadiusBottomEnd="14dp"
+                app:boxCornerRadiusBottomStart="14dp"
+                app:boxCornerRadiusTopEnd="14dp"
+                app:boxCornerRadiusTopStart="14dp"
                 app:startIconDrawable="@drawable/ic_user_profile"
-                app:startIconTint="#888888">
+                app:startIconTint="?attr/colorControlNormal">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/email_input"
@@ -84,20 +97,24 @@
                     android:layout_height="wrap_content"
                     android:hint="Email Adresi"
                     android:inputType="textEmailAddress"
-                    android:textColor="#FFFFFF" />
+                    android:textColor="?android:attr/textColorPrimary" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColorHint="#888888"
+                android:textColorHint="?android:attr/textColorSecondary"
                 app:boxStrokeColor="#D32F2F"
                 app:hintTextColor="#D32F2F"
+                app:boxCornerRadiusBottomEnd="14dp"
+                app:boxCornerRadiusBottomStart="14dp"
+                app:boxCornerRadiusTopEnd="14dp"
+                app:boxCornerRadiusTopStart="14dp"
                 app:passwordToggleEnabled="true"
-                app:passwordToggleTint="#888888"
+                app:passwordToggleTint="?attr/colorControlNormal"
                 app:startIconDrawable="@drawable/ic_back"
-                app:startIconTint="#888888">
+                app:startIconTint="?attr/colorControlNormal">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/password_input"
@@ -105,7 +122,7 @@
                     android:layout_height="wrap_content"
                     android:hint="Şifre"
                     android:inputType="textPassword"
-                    android:textColor="#FFFFFF" />
+                    android:textColor="?android:attr/textColorPrimary" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
@@ -113,23 +130,26 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="end"
-                android:layout_marginTop="8dp"
-                android:text="Şifremi Unuttum"
+                android:layout_marginTop="12dp"
+                android:padding="4dp"
+                android:text="Şifremi Unuttum?"
                 android:textColor="#D32F2F"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/login_button"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="62dp"
                 android:layout_marginTop="24dp"
                 android:backgroundTint="#D32F2F"
                 android:text="GİRİŞ YAP"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                app:cornerRadius="16dp" />
+                android:letterSpacing="0.05"
+                app:cornerRadius="18dp"
+                app:elevation="4dp" />
 
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
@@ -137,8 +157,9 @@
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="32dp"
         android:orientation="horizontal"
+        android:padding="8dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/loginCard">
@@ -148,7 +169,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Hesabınız yok mu? "
-            android:textColor="#BBBBBB" />
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="15sp" />
 
         <TextView
             android:id="@+id/register_text_button"
@@ -156,7 +178,8 @@
             android:layout_height="wrap_content"
             android:text="Kayıt Ol"
             android:textColor="#D32F2F"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:textSize="15sp" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

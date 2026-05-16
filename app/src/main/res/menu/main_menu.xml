@@ -1,9 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<menu xmlns:android="http://schemas.android.com/apk/res/android">
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
     <item
         android:id="@+id/menu_profile"
-        android:title="Profil" />
+        android:icon="@drawable/ic_user_profile"
+        android:title="Profilim" />
+
     <item
-        android:id="@+id/menu_logout"
-        android:title="Çıkış Yap" />
+        android:id="@+id/menu_dark_mode"
+        android:icon="@drawable/ic_dark_mode"
+        android:title="Koyu Tema"
+        app:actionViewClass="com.google.android.material.materialswitch.MaterialSwitch" />
+
+    <item
+        android:id="@+id/menu_critical_mode"
+        android:icon="@drawable/ic_warning_critical"
+        android:title="Kritik Takip"
+        app:actionViewClass="com.google.android.material.materialswitch.MaterialSwitch" />
+
+    <item
+        android:id="@+id/menu_assistant"
+        android:icon="@drawable/ic_ai_assistant"
+        android:title="AI Asistanım" />
+
+    <item
+        android:id="@+id/menu_assembly_area"
+        android:icon="@drawable/ic_map_marker"
+        android:title="Güvenli Rota (Offline)"
+        android:visible="true" />
+
+    <item android:title="Hesap">
+        <menu>
+            <item
+                android:id="@+id/menu_logout"
+                android:icon="@drawable/ic_logout"
+                android:title="Güvenli Çıkış" />
+        </menu>
+    </item>
 </menu>

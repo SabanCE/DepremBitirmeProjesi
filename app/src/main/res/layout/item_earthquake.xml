@@ -1,44 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:padding="12dp"
-    android:background="#F5F5F5"
-    android:layout_marginBottom="4dp">
-
-    <TextView
-        android:id="@+id/txtMagnitude"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:text="4.2"
-        android:gravity="center"
-        android:background="#FFCDD2"
-        android:textColor="#D32F2F"
-        android:textStyle="bold"
-        android:textSize="18sp"/>
+    android:layout_marginBottom="12dp"
+    android:layout_marginHorizontal="4dp"
+    app:cardBackgroundColor="?attr/colorSurface"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="2dp"
+    app:strokeWidth="1dp"
+    app:strokeColor="?attr/colorOutlineVariant">
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:layout_marginStart="10dp">
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/txtDate"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="23 Kas 2025 - 14:30:22"
-            android:textSize="14sp"
-            android:textStyle="bold"/>
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            app:cardBackgroundColor="#FFEBEE"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp">
 
-        <TextView
-            android:id="@+id/txtType"
-            android:layout_width="wrap_content"
+            <TextView
+                android:id="@+id/txtMagnitude"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="4.2"
+                android:gravity="center"
+                android:textColor="#D32F2F"
+                android:textStyle="bold"
+                android:textSize="20sp"/>
+        </com.google.android.material.card.MaterialCardView>
+
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="QUAKE"
-            android:textSize="12sp"
-            android:textColor="#757575"/>
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:id="@+id/txtDate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="23 Kas 2025 - 14:30"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/txtType"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Lokasyon Bilgisi"
+                android:textSize="13sp"
+                android:textColor="?android:attr/textColorSecondary"/>
+        </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+</com.google.android.material.card.MaterialCardView>
